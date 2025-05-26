@@ -21,15 +21,15 @@
     contains
 
     subroutine TDarkEnergyPPF_ReadParams(this, Ini)
-    use IniObjects
-    class(TDarkEnergyPPF) :: this
-    class(TIniFile), intent(in) :: Ini
+        use IniObjects
+        class(TDarkEnergyPPF) :: this
+        class(TIniFile), intent(in) :: Ini
 
-    call this%TDarkEnergyEqnOfState%ReadParams(Ini)
-    this%cs2_lam = Ini%Read_Double('cs2_lam', 1.d0)
-    if (this%cs2_lam /= 1._dl) error stop 'cs2_lam not supported by PPF model'
-    call this%setcgammappf
-
+        call this%TDarkEnergyEqnOfState%ReadParams(Ini)
+        this%cs2_0 = Ini%Read_Double('cs2_0', 1.d0)
+        this%cs2_1 = Ini%Read_Double('cs2_1', 1.d0)
+        ! if (this%cs2_lam /= 1._dl) error stop 'cs2_lam not supported by PPF model'
+        call this%setcgammappf
     end subroutine TDarkEnergyPPF_ReadParams
 
     function TDarkEnergyPPF_PythonClass()
@@ -55,6 +55,7 @@
     use config
     class(TDarkEnergyPPF), intent(inout) :: this
     class(TCAMBdata), intent(in), target :: State
+    real(dl) :: cs2_now, cs2_initial
 
     call this%TDarkEnergyEqnOfState%Init(State)
     if (this%is_cosmological_constant) then
@@ -62,18 +63,23 @@
     else
         this%num_perturb_equations = 1
     end if
-    if (this%cs2_lam /= 1._dl) &
-        call GlobalError('DarkEnergyPPF does not support varying sound speed',error_unsupported_params)
+    
+    cs2_now = this%cs2_0 + this%cs2_1*this%w0
+    cs2_initial = cs2_now + this%cs2_1*this%wa
+
+    if (cs2_now > 1 .or. cs2_now < 0 .or. cs2_initial > 1 .or. cs2_initial < 0) then
+        write(*,*) "ERROR: the fluid dark energy must obey 0 < cs2 < 1. However, for w0 = ", this%w0, ", wa = ", this%wa, ", cs2_0 = ", this%cs2_0, ", and cs2_1 = ", this%cs2_1, ", we find cs2_initial = ", cs2_initial, ", and cs2_now = ", cs2_now, ", which violates the condition."
+        call GlobalError("Your fluid dark energy must obey 0 < cs^2 < 1")
+    end if
+
+    ! if (this%cs2_lam /= 1._dl) call GlobalError('DarkEnergyPPF does not support varying sound speed', error_unsupported_params)
 
     end subroutine TDarkEnergyPPF_Init
 
     subroutine setcgammappf(this)
-    class(TDarkEnergyPPF) :: this
-
-    this%c_Gamma_ppf = 0.4_dl * sqrt(this%cs2_lam)
-
+        class(TDarkEnergyPPF) :: this
+        this%c_Gamma_ppf = 0.4_dl * sqrt(this%cs2_0) ! JVR TODO: must think about this
     end subroutine setcgammappf
-
 
     function TDarkEnergyPPF_diff_rhopi_Add_Term(this, dgrhoe, dgqe, grho, gpres, w,  grhok, adotoa, &
         Kf1, k, grhov_t, z, k2, yprime, y, w_ix) result(ppiedot)

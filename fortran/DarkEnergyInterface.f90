@@ -1,7 +1,9 @@
     module DarkEnergyInterface
+
     use precision
     use interpolation
     use classes
+
     implicit none
 
     private
@@ -10,57 +12,54 @@
         logical :: is_cosmological_constant = .true.
         integer :: num_perturb_equations = 0
     contains
-    procedure :: Init
-    procedure :: BackgroundDensityAndPressure
-    procedure :: PerturbedStressEnergy !Get density perturbation and heat flux for sources
-    procedure :: diff_rhopi_Add_Term
-    procedure :: PerturbationInitial
-    procedure :: PerturbationEvolve
-    procedure :: PrintFeedback
-    ! do not have to implement w_de or grho_de if BackgroundDensityAndPressure is inherited directly
-    procedure :: w_de
-    procedure :: grho_de
-    procedure :: Effective_w_wa !Used as approximate values for non-linear corrections
+        procedure :: Init
+        procedure :: BackgroundDensityAndPressure
+        procedure :: PerturbedStressEnergy !Get density perturbation and heat flux for sources
+        procedure :: diff_rhopi_Add_Term
+        procedure :: PerturbationInitial
+        procedure :: PerturbationEvolve
+        procedure :: PrintFeedback
+        ! do not have to implement w_de or grho_de if BackgroundDensityAndPressure is inherited directly
+        procedure :: w_de
+        procedure :: grho_de
+        procedure :: Effective_w_wa !Used as approximate values for non-linear corrections
     end type TDarkEnergyModel
 
     type, extends(TDarkEnergyModel) :: TDarkEnergyEqnOfState
         !Type supporting w, wa or general w(z) table
-        real(dl) :: w_lam = -1_dl !p/rho for the dark energy (an effective value, used e.g. for halofit)
-        real(dl) :: wa = 0._dl !may not be used, just for compatibility with e.g. halofit
-        real(dl) :: cs2_lam = 1_dl !rest-frame sound speed, though may not be used
+        real(dl) :: w0 = -1_dl ! p/rho for the dark energy (an effective value, used e.g. for halofit)
+        real(dl) :: wa = 0._dl ! may not be used, just for compatibility with e.g. halofit
+        real(dl) :: cs2_0 = 1_dl, cs2_1 = 0._dl ! rest-frame sound speed, though may not be used
         logical :: use_tabulated_w = .false.  !Use interpolated table; note this is quite slow.
         logical :: no_perturbations = .false. !Don't change this, no perturbations is unphysical
         !Interpolations if use_tabulated_w=.true.
         Type(TCubicSpline) :: equation_of_state, logdensity
     contains
-    procedure :: ReadParams => TDarkEnergyEqnOfState_ReadParams
-    procedure :: Init => TDarkEnergyEqnOfState_Init
-    procedure :: SetwTable => TDarkEnergyEqnOfState_SetwTable
-    procedure :: PrintFeedback => TDarkEnergyEqnOfState_PrintFeedback
-    procedure :: w_de => TDarkEnergyEqnOfState_w_de
-    procedure :: grho_de => TDarkEnergyEqnOfState_grho_de
-    procedure :: Effective_w_wa => TDarkEnergyEqnOfState_Effective_w_wa
+        procedure :: ReadParams => TDarkEnergyEqnOfState_ReadParams
+        procedure :: Init => TDarkEnergyEqnOfState_Init
+        procedure :: SetwTable => TDarkEnergyEqnOfState_SetwTable
+        procedure :: PrintFeedback => TDarkEnergyEqnOfState_PrintFeedback
+        procedure :: w_de => TDarkEnergyEqnOfState_w_de
+        procedure :: grho_de => TDarkEnergyEqnOfState_grho_de
+        procedure :: Effective_w_wa => TDarkEnergyEqnOfState_Effective_w_wa
     end type TDarkEnergyEqnOfState
 
     public TDarkEnergyModel, TDarkEnergyEqnOfState
+    
     contains
 
     function w_de(this, a)
-    class(TDarkEnergyModel) :: this
-    real(dl) :: w_de, al
-    real(dl), intent(IN) :: a
-
-    w_de = -1._dl
-
+        class(TDarkEnergyModel) :: this
+        real(dl) :: w_de, al
+        real(dl), intent(IN) :: a
+        w_de = -1._dl
     end function w_de  ! equation of state of the PPF DE
 
     function grho_de(this, a)  !relative density (8 pi G a^4 rho_de /grhov)
-    class(TDarkEnergyModel) :: this
-    real(dl) :: grho_de, al, fint
-    real(dl), intent(IN) :: a
-
-    grho_de =0._dl
-
+        class(TDarkEnergyModel) :: this
+        real(dl) :: grho_de, al, fint
+        real(dl), intent(IN) :: a
+        grho_de = 0._dl
     end function grho_de
 
     subroutine PrintFeedback(this, FeedbackLevel)
@@ -175,7 +174,7 @@
     integral = integral - integral(this%equation_of_state%n) !log(a^4 rho_de)) normalized to 0 at a=1
     call this%logdensity%Init(this%equation_of_state%X, integral)
     !Set w and wa to values today (e.g. as too simple first guess for approx fittings etc).
-    this%w_lam = w(size(a))
+    this%w0 = w(size(a))
     this%wa = -this%equation_of_state%Derivative(0._dl)
 
     end subroutine TDarkEnergyEqnOfState_SetwTable
@@ -187,7 +186,7 @@
     real(dl), intent(IN) :: a
 
     if(.not. this%use_tabulated_w) then
-        TDarkEnergyEqnOfState_w_de= this%w_lam+ this%wa*(1._dl-a)
+        TDarkEnergyEqnOfState_w_de= this%w0 + this%wa*(1._dl - a)
     else
         al=dlog(a)
         if(al <= this%equation_of_state%Xmin_interp) then
@@ -203,12 +202,10 @@
 
 
     subroutine TDarkEnergyEqnOfState_Effective_w_wa(this, w, wa)
-    class(TDarkEnergyEqnOfState), intent(inout) :: this
-    real(dl), intent(out) :: w, wa
-
-    w = this%w_lam
-    wa = this%wa
-
+        class(TDarkEnergyEqnOfState), intent(inout) :: this
+        real(dl), intent(out) :: w, wa
+        w  = this%w0
+        wa = this%wa
     end subroutine TDarkEnergyEqnOfState_Effective_w_wa
 
     function TDarkEnergyEqnOfState_grho_de(this, a) result(grho_de) !relative density (8 pi G a^4 rho_de /grhov)
@@ -217,7 +214,7 @@
     real(dl), intent(IN) :: a
 
     if(.not. this%use_tabulated_w) then
-        grho_de = a ** (1._dl - 3. * this%w_lam - 3. * this%wa)
+        grho_de = a ** (1._dl - 3. * this%w0 - 3. * this%wa)
         if (this%wa/=0) grho_de=grho_de*exp(-3. * this%wa * (1._dl - a))
     else
         if(a == 0.d0)then
@@ -245,7 +242,7 @@
     integer, intent(in) :: FeedbackLevel
 
     if (FeedbackLevel >0) write(*,'("(w0, wa) = (", f8.5,", ", f8.5, ")")') &
-        &   this%w_lam, this%wa
+        &   this%w0, this%wa
 
     end subroutine TDarkEnergyEqnOfState_PrintFeedback
 
@@ -258,11 +255,11 @@
 
     this%use_tabulated_w = Ini%Read_Logical('use_tabulated_w', .false.)
     if(.not. this%use_tabulated_w)then
-        this%w_lam = Ini%Read_Double('w', -1.d0)
+        this%w0 = Ini%Read_Double('w', -1.d0)
         this%wa = Ini%Read_Double('wa', 0.d0)
         ! trap dark energy becoming important at high redshift 
         ! (will still work if this test is removed in some cases)
-        if (this%w_lam + this%wa > 0) &
+        if (this%w0 + this%wa > 0) &
              error stop 'w + wa > 0, giving w>0 at high redshift'
     else
         call File%LoadTxt(Ini%Read_String('wafile'), table)
@@ -278,7 +275,7 @@
     class(TCAMBdata), intent(in), target :: State
 
     this%is_cosmological_constant = .not. this%use_tabulated_w .and. &
-        &  abs(this%w_lam + 1._dl) < 1.e-6_dl .and. this%wa==0._dl
+        &  abs(this%w0 + 1._dl) < 1.e-6_dl .and. this%wa==0._dl
 
     end subroutine TDarkEnergyEqnOfState_Init
 

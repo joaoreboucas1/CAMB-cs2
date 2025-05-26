@@ -1,26 +1,26 @@
 
     module DarkEnergyFluid
+    
     use DarkEnergyInterface
     use results
     use constants
     use classes
+    
     implicit none
 
     type, extends(TDarkEnergyEqnOfState) :: TDarkEnergyFluid
-        !comoving sound speed is always exactly 1 for quintessence
-        !(otherwise assumed constant, though this is almost certainly unrealistic)
     contains
-    procedure :: ReadParams => TDarkEnergyFluid_ReadParams
-    procedure, nopass :: PythonClass => TDarkEnergyFluid_PythonClass
-    procedure, nopass :: SelfPointer => TDarkEnergyFluid_SelfPointer
-    procedure :: Init =>TDarkEnergyFluid_Init
-    procedure :: PerturbedStressEnergy => TDarkEnergyFluid_PerturbedStressEnergy
-    procedure :: PerturbationEvolve => TDarkEnergyFluid_PerturbationEvolve
+        procedure :: ReadParams => TDarkEnergyFluid_ReadParams
+        procedure, nopass :: PythonClass => TDarkEnergyFluid_PythonClass
+        procedure, nopass :: SelfPointer => TDarkEnergyFluid_SelfPointer
+        procedure :: Init =>TDarkEnergyFluid_Init
+        procedure :: PerturbedStressEnergy => TDarkEnergyFluid_PerturbedStressEnergy
+        procedure :: PerturbationEvolve => TDarkEnergyFluid_PerturbationEvolve
     end type TDarkEnergyFluid
 
-    !Example implementation of fluid model using specific analytic form
-    !(approximate effective axion fluid model from arXiv:1806.10608, with c_s^2=1 if n=infinity (w_n=1))
-    !This is an example, it's not supposed to be a rigorous model!  (not very well tested)
+    ! Example implementation of fluid model using specific analytic form
+    ! (approximate effective axion fluid model from arXiv:1806.10608, with c_s^2=1 if n=infinity (w_n=1))
+    ! This is an example, it's not supposed to be a rigorous model!  (not very well tested)
     type, extends(TDarkEnergyModel) :: TAxionEffectiveFluid
         real(dl) :: w_n = 1._dl !Effective equation of state when oscillating
         real(dl) :: fde_zc = 0._dl ! energy density fraction at a_c (not the same as peak dark energy fraction)
@@ -30,68 +30,68 @@
         !omL is the lambda component of the total dark energy omega
         real(dl), private :: a_c, pow, om, omL, acpow, freq, n !cached internally
     contains
-    procedure :: ReadParams =>  TAxionEffectiveFluid_ReadParams
-    procedure, nopass :: PythonClass => TAxionEffectiveFluid_PythonClass
-    procedure, nopass :: SelfPointer => TAxionEffectiveFluid_SelfPointer
-    procedure :: Init => TAxionEffectiveFluid_Init
-    procedure :: w_de => TAxionEffectiveFluid_w_de
-    procedure :: grho_de => TAxionEffectiveFluid_grho_de
-    procedure :: PerturbedStressEnergy => TAxionEffectiveFluid_PerturbedStressEnergy
-    procedure :: PerturbationEvolve => TAxionEffectiveFluid_PerturbationEvolve
+        procedure :: ReadParams =>  TAxionEffectiveFluid_ReadParams
+        procedure, nopass :: PythonClass => TAxionEffectiveFluid_PythonClass
+        procedure, nopass :: SelfPointer => TAxionEffectiveFluid_SelfPointer
+        procedure :: Init => TAxionEffectiveFluid_Init
+        procedure :: w_de => TAxionEffectiveFluid_w_de
+        procedure :: grho_de => TAxionEffectiveFluid_grho_de
+        procedure :: PerturbedStressEnergy => TAxionEffectiveFluid_PerturbedStressEnergy
+        procedure :: PerturbationEvolve => TAxionEffectiveFluid_PerturbationEvolve
     end type TAxionEffectiveFluid
 
     contains
 
-
     subroutine TDarkEnergyFluid_ReadParams(this, Ini)
-    use IniObjects
-    class(TDarkEnergyFluid) :: this
-    class(TIniFile), intent(in) :: Ini
-
-    call this%TDarkEnergyEqnOfState%ReadParams(Ini)
-    this%cs2_lam = Ini%Read_Double('cs2_lam', 1.d0)
-
+        use IniObjects
+        class(TDarkEnergyFluid) :: this
+        class(TIniFile), intent(in) :: Ini
+        call this%TDarkEnergyEqnOfState%ReadParams(Ini)
+        this%cs2_0 = Ini%Read_Double('cs2_0', 1.0_dl)
+        this%cs2_1 = Ini%Read_Double('cs2_1', 0d0)
     end subroutine TDarkEnergyFluid_ReadParams
 
-
     function TDarkEnergyFluid_PythonClass()
-    character(LEN=:), allocatable :: TDarkEnergyFluid_PythonClass
-
-    TDarkEnergyFluid_PythonClass = 'DarkEnergyFluid'
-
+        character(LEN=:), allocatable :: TDarkEnergyFluid_PythonClass
+        TDarkEnergyFluid_PythonClass = 'DarkEnergyFluid'
     end function TDarkEnergyFluid_PythonClass
 
     subroutine TDarkEnergyFluid_SelfPointer(cptr,P)
-    use iso_c_binding
-    Type(c_ptr) :: cptr
-    Type (TDarkEnergyFluid), pointer :: PType
-    class (TPythonInterfacedClass), pointer :: P
-
-    call c_f_pointer(cptr, PType)
-    P => PType
-
+        use iso_c_binding
+        Type(c_ptr) :: cptr
+        Type (TDarkEnergyFluid), pointer :: PType
+        class (TPythonInterfacedClass), pointer :: P
+        call c_f_pointer(cptr, PType)
+        P => PType
     end subroutine TDarkEnergyFluid_SelfPointer
 
     subroutine TDarkEnergyFluid_Init(this, State)
-    use classes
-    class(TDarkEnergyFluid), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+        use classes
+        class(TDarkEnergyFluid), intent(inout) :: this
+        class(TCAMBdata), intent(in), target :: State
+        real(dl) :: cs2_initial, cs2_now
+        call this%TDarkEnergyEqnOfState%Init(State)
 
-    call this%TDarkEnergyEqnOfState%Init(State)
+        cs2_now = this%cs2_0 + this%cs2_1*this%w0
+        cs2_initial = cs2_now + this%cs2_1*this%wa
 
-    if (this%is_cosmological_constant) then
-        this%num_perturb_equations = 0
-    else
-        if (this%use_tabulated_w) then
-            if (any(this%equation_of_state%F<-1) .and. any(this%equation_of_state%F>-1)) &
-                error stop 'Fluid dark energy model does not allow w crossing -1'
-        elseif (this%wa/=0 .and. &
-            ((1+this%w_lam < -1.e-6_dl) .or. 1+this%w_lam + this%wa < -1.e-6_dl)) then
-            error stop 'Fluid dark energy model does not allow w crossing -1'
+        if (cs2_now > 1 .or. cs2_now < 0 .or. cs2_initial > 1 .or. cs2_initial < 0) then
+            write(*,*) "ERROR: the fluid dark energy must obey 0 < cs2 < 1. However, for w0 = ", this%w0, ", wa = ", this%wa, ", cs2_0 = ", this%cs2_0, ", and cs2_1 = ", this%cs2_1, ", we find cs2_initial = ", cs2_initial, ", and cs2_now = ", cs2_now, ", which violates the condition."
+            error stop "Your fluid dark energy must obey 0 < cs^2 < 1"
         end if
-        this%num_perturb_equations = 2
-    end if
 
+        if (this%is_cosmological_constant) then
+            this%num_perturb_equations = 0
+        else
+            if (this%use_tabulated_w) then
+                if (any(this%equation_of_state%F<-1) .and. any(this%equation_of_state%F>-1)) &
+                    error stop 'Fluid dark energy model does not allow w crossing -1'
+            elseif (this%wa/=0 .and. &
+                ((1+this%w0 < -1.e-6_dl) .or. 1+this%w0 + this%wa < -1.e-6_dl)) then
+                error stop 'Fluid dark energy model does not allow w crossing -1'
+            end if
+            this%num_perturb_equations = 2
+        end if
     end subroutine TDarkEnergyFluid_Init
 
 
@@ -120,11 +120,14 @@
     real(dl), intent(inout) :: ayprime(:)
     real(dl), intent(in) :: a, adotoa, w, k, z, y(:)
     integer, intent(in) :: w_ix
-    real(dl) Hv3_over_k, loga
+    real(dl) Hv3_over_k, loga, cs2
 
     Hv3_over_k =  3*adotoa* y(w_ix + 1) / k
-    !density perturbation
-    ayprime(w_ix) = -3 * adotoa * (this%cs2_lam - w) *  (y(w_ix) + (1 + w) * Hv3_over_k) &
+
+    cs2 = this%cs2_0 + this%cs2_1*w
+
+    ! density perturbation
+    ayprime(w_ix) = -3 * adotoa * (cs2 - w) *  (y(w_ix) + (1 + w) * Hv3_over_k) &
         -  (1 + w) * k * y(w_ix + 1) - (1 + w) * k * z
     if (this%use_tabulated_w) then
         !account for derivatives of w
@@ -137,8 +140,8 @@
     end if
     !velocity
     if (abs(w+1) > 1e-6) then
-        ayprime(w_ix + 1) = -adotoa * (1 - 3 * this%cs2_lam) * y(w_ix + 1) + &
-            k * this%cs2_lam * y(w_ix) / (1 + w)
+        ayprime(w_ix + 1) = -adotoa * (1 - 3 * cs2) * y(w_ix + 1) + &
+            k * cs2 * y(w_ix) / (1 + w)
     else
         ayprime(w_ix + 1) = 0
     end if
