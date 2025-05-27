@@ -41,6 +41,7 @@ camb/HighLExtrapTemplate_lenspotentialCls.dat
 testfile*
 *.ipynb
 !CAMBdemo.ipynb
+!cs2_demo.ipynb
 !ScalEqs.ipynb
 *.dll
 *.a
