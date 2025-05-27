@@ -29,31 +29,38 @@ class DarkEnergyEqnOfState(DarkEnergyModel):
     _fortran_class_name_ = 'TDarkEnergyEqnOfState'
 
     _fields_ = [
-        ("w", c_double, "w(0)"),
+        ("w0", c_double, "w(0)"),
         ("wa", c_double, "-dw/da(0)"),
-        ("cs2", c_double, "fluid rest-frame sound speed squared"),
+        ("cs2_0", c_double, "fluid rest-frame sound speed squared"),
+        ("cs2_1", c_double, "fluid rest-frame sound speed squared"),
         ("use_tabulated_w", c_bool, "using an interpolated tabulated w(a) rather than w, wa above"),
         ("__no_perturbations", c_bool, "turn off perturbations (unphysical, so hidden in Python)")
     ]
 
     _methods_ = [('SetWTable', [numpy_1d, numpy_1d, POINTER(c_int)])]
 
-    def set_params(self, w=-1.0, wa=0, cs2=1.0):
+    def set_params(self, w0=-1.0, wa=0, cs2_0=1.0, cs2_1=0.0):
         """
          Set the parameters so that P(a)/rho(a) = w(a) = w + (1-a)*wa
 
         :param w: w(0)
         :param wa: -dw/da(0)
-        :param cs2: fluid rest-frame sound speed squared
+        :param cs2_0: fluid rest-frame sound speed squared
+        :param cs2_1: fluid rest-frame sound speed squared
         """
-        self.w = w
+        self.w0 = w0
         self.wa = wa
-        self.cs2 = cs2
+        self.cs2_0 = cs2_0
+        self.cs2_1 = cs2_1
         self.validate_params()
 
     def validate_params(self):
-        if not self.use_tabulated_w and self.wa + self.w > 0:
+        if not self.use_tabulated_w and self.wa + self.w0 > 0:
             raise CAMBError('dark energy model has w + wa > 0, giving w>0 at high redshift')
+        cs2_now = self.cs2_0 + self.cs2_1*self.w0
+        cs2_initial = cs2_now + self.cs2_1*self.wa
+        if cs2_now < 0 or cs2_now > 1 or cs2_initial < 0 or cs2_initial > 1:
+            raise CAMBError(f"Sound speed must be between 0 and 1, but for w0 = {self.w0}, wa = {self.wa}, cs2_0 = {self.cs2_0} and cs2_1 = {self.cs2_1}, we have cs2_initial = {cs2_initial} and cs2_now = {cs2_now}")
 
     def set_w_a_table(self, a, w) -> 'DarkEnergyEqnOfState':
         """
@@ -96,7 +103,7 @@ class DarkEnergyFluid(DarkEnergyEqnOfState):
     def validate_params(self) -> None:
         super().validate_params()
         if not self.use_tabulated_w:
-            if self.wa and (self.w < -1 - 1e-6 or 1 + self.w + self.wa < - 1e-6):
+            if self.wa and (self.w0 < -1 - 1e-6 or 1 + self.w0 + self.wa < - 1e-6):
                 raise CAMBError('fluid dark energy model does not support w crossing -1')
 
     def set_w_a_table(self, a, w) -> 'DarkEnergyEqnOfState':
