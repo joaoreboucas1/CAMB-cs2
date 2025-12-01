@@ -26,8 +26,8 @@
     class(TIniFile), intent(in) :: Ini
 
     call this%TDarkEnergyEqnOfState%ReadParams(Ini)
-    this%cs2_lam = Ini%Read_Double('cs2_lam', 1.d0)
-    if (this%cs2_lam /= 1._dl) error stop 'cs2_lam not supported by PPF model'
+    this%cs2_0 = Ini%Read_Double('cs2_0', 1.d0)
+    if (this%cs2_0 /= 1._dl) error stop 'cs2_0 supported by PPF model'
     call this%setcgammappf
 
     end subroutine TDarkEnergyPPF_ReadParams
@@ -62,15 +62,16 @@
     else
         this%num_perturb_equations = 1
     end if
-    if (this%cs2_lam /= 1._dl) &
-        call GlobalError('DarkEnergyPPF does not support varying sound speed',error_unsupported_params)
+    ! JVR NOTE: disabled this error
+    ! if (this%cs2_0 /= 1._dl) &
+    !     call GlobalError('DarkEnergyPPF does not support varying sound speed',error_unsupported_params)
 
     end subroutine TDarkEnergyPPF_Init
 
     subroutine setcgammappf(this)
     class(TDarkEnergyPPF) :: this
 
-    this%c_Gamma_ppf = 0.4_dl * sqrt(this%cs2_lam)
+    this%c_Gamma_ppf = 0.4_dl * sqrt(this%cs2_0)
 
     end subroutine setcgammappf
 

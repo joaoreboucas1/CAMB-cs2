@@ -151,7 +151,7 @@
     end type EvolutionVars
 
     ABSTRACT INTERFACE
-    SUBROUTINE TSource_func(sources, tau, a, adotoa, grho, gpres,w_lam, cs2_lam,  &
+    SUBROUTINE TSource_func(sources, tau, a, adotoa, grho, gpres,w_lam, cs2_0, &
         grhob_t,grhor_t,grhoc_t,grhog_t,grhov_t,grhonu_t, &
         k,etak, etakdot, phi, phidot, sigma, sigmadot, &
         dgrho, clxg,clxb,clxc,clxr, clxnu, clxde, delta_p_b, &
@@ -162,7 +162,7 @@
         tau0, tau_maxvis, Kf, f_K)
     use precision
     real(dl), intent(out) :: sources(:)
-    real(dl), intent(in) :: tau, a, adotoa, grho, gpres,w_lam, cs2_lam,  &
+    real(dl), intent(in) :: tau, a, adotoa, grho, gpres,w_lam, cs2_0,  &
         grhob_t,grhor_t,grhoc_t,grhog_t,grhov_t,grhonu_t, &
         k,etak, etakdot, phi, phidot, sigma, sigmadot, &
         dgrho, clxg,clxb,clxc, clxr, clxnu, clxde, delta_p_b, &
@@ -2786,7 +2786,7 @@
             if (associated(EV%CustomSources)) then
                 select type(DE=>State%CP%DarkEnergy)
                 class is (TDarkEnergyEqnOfState)
-                    cs2_de = DE%cs2_lam
+                    cs2_de = DE%cs2_0
                 class default
                     cs2_de=1
                 end select

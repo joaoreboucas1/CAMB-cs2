@@ -31,14 +31,14 @@ class DarkEnergyEqnOfState(DarkEnergyModel):
     _fields_ = [
         ("w", c_double, "w(0)"),
         ("wa", c_double, "-dw/da(0)"),
-        ("cs2", c_double, "fluid rest-frame sound speed squared"),
+        ("cs2_0", c_double, "fluid rest-frame sound speed squared"),
         ("use_tabulated_w", c_bool, "using an interpolated tabulated w(a) rather than w, wa above"),
         ("__no_perturbations", c_bool, "turn off perturbations (unphysical, so hidden in Python)"),
     ]
 
     _methods_ = [("SetWTable", [numpy_1d, numpy_1d, POINTER(c_int)])]
 
-    def set_params(self, w=-1.0, wa=0, cs2=1.0):
+    def set_params(self, w=-1.0, wa=0, cs2=1.0, cs2_type=0):
         """
          Set the parameters so that P(a)/rho(a) = w(a) = w + (1-a)*wa
 

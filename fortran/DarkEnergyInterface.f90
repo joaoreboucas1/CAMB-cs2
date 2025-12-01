@@ -25,12 +25,12 @@
 
     type, extends(TDarkEnergyModel) :: TDarkEnergyEqnOfState
         !Type supporting w, wa or general w(z) table
-        real(dl) :: w_lam = -1_dl !p/rho for the dark energy (an effective value, used e.g. for halofit)
-        real(dl) :: wa = 0._dl !may not be used, just for compatibility with e.g. halofit
-        real(dl) :: cs2_lam = 1_dl !rest-frame sound speed, though may not be used
-        logical :: use_tabulated_w = .false.  !Use interpolated table; note this is quite slow.
-        logical :: no_perturbations = .false. !Don't change this, no perturbations is unphysical
-        !Interpolations if use_tabulated_w=.true.
+        real(dl) :: w_lam = -1_dl ! p/rho for the dark energy (an effective value, used e.g. for halofit)
+        real(dl) :: wa = 0._dl ! may not be used, just for compatibility with e.g. halofit
+        real(dl) :: cs2_0 = 1_dl ! rest-frame sound speed, though may not be used
+        logical :: use_tabulated_w = .false.  ! Use interpolated table; note this is quite slow.
+        logical :: no_perturbations = .false. ! Don't change this, no perturbations is unphysical
+        ! Interpolations if use_tabulated_w=.true.
         Type(TCubicSpline) :: equation_of_state, logdensity
     contains
     procedure :: ReadParams => TDarkEnergyEqnOfState_ReadParams
