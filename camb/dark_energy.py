@@ -38,7 +38,7 @@ class DarkEnergyEqnOfState(DarkEnergyModel):
 
     _methods_ = [("SetWTable", [numpy_1d, numpy_1d, POINTER(c_int)])]
 
-    def set_params(self, w=-1.0, wa=0, cs2=1.0, cs2_type=0):
+    def set_params(self, w=-1.0, wa=0, cs2_0=1.0, cs2_type=0):
         """
          Set the parameters so that P(a)/rho(a) = w(a) = w + (1-a)*wa
 
@@ -48,7 +48,7 @@ class DarkEnergyEqnOfState(DarkEnergyModel):
         """
         self.w = w
         self.wa = wa
-        self.cs2 = cs2
+        self.cs2_0 = cs2_0
         self.validate_params()
 
     def validate_params(self):
