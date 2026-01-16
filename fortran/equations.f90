@@ -2180,6 +2180,9 @@
     class is (TDarkEnergyEqnOfState)
     w0 = DE%w_lam
     wa = DE%wa
+    class default
+    w0 = -1.0_dl
+    wa = 0d0
     end select
 
     call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
@@ -2227,6 +2230,9 @@
     class is (TDarkEnergyEqnOfState)
     w0 = DE%w_lam
     wa = DE%wa
+    class default
+    w0 = -1.0_dl
+    wa = 0d0
     end select
 
     call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
