@@ -331,6 +331,11 @@ class CAMBparams(F2003Class):
             {"size": "nu_mass_eigenstates"},
             "Number of physical neutrinos per distinct eigenstate",
         ),
+        # JVR MOD BEGIN: adding flag and parameters for MG in Python interface
+        ("use_mg", c_bool, "Flag for using modified gravity"),
+        ("mu0", c_double, "Parameter \\mu_0 for Sigma-mu parametrization"),
+        ("Sigma0", c_double, "Parameter \\Sigma_0 for Sigma-mu parametrization"),
+        # JVR MOD END
         ("InitPower", AllocatableObject(InitialPower)),
         ("Recomb", AllocatableObject(recomb.RecombinationModel)),
         ("Reion", AllocatableObject(reion.ReionizationModel)),
@@ -620,6 +625,10 @@ class CAMBparams(F2003Class):
         bbn_predictor: None | str | bbn.BBNPredictor = None,
         theta_H0_range=(10, 100),
         setter_H0=None,
+        # JVR MOD BEGIN: add MG parameters to setters
+        mu0=0,
+        Sigma0=0
+        # JVR MOD END
     ):
         r"""
         Sets cosmological parameters in terms of physical densities and parameters (e.g. as used in Planck analyses).
@@ -675,6 +684,8 @@ class CAMBparams(F2003Class):
         :param setter_H0: if specified, a function to call to set H0 for each iteration to find thetastar. It should be
          a function(pars: CAMBParams, H0: float). Not normally needed, but can be used e.g. when DE model needs to be
          changed for each H0 because it depends explicitly on H0
+        :param mu0: MG parameter
+        :param Sigma0: MG parameter
         """
 
         if YHe is None:
@@ -689,6 +700,15 @@ class CAMBparams(F2003Class):
         self.ombh2 = ombh2
         self.omch2 = omch2
         self.Alens = Alens
+
+        # JVR MOD BEGIN: setting MG parameters in class]
+        if (abs(mu0) < 1e-3 and abs(Sigma0) < 1e-3):
+            self.use_mg = False
+        else:
+            self.use_mg = True
+            self.mu0 = mu0
+            self.Sigma0 = Sigma0
+        # JVR MOD END
 
         neutrino_mass_fac = constants.neutrino_mass_fac * (constants.COBE_CMBTemp / TCMB) ** 3
 

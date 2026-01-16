@@ -1008,11 +1008,14 @@
 
     end subroutine SwitchToMassiveNuApprox
 
-    subroutine MassiveNuVarsOut(EV,y,yprime,a,adotoa,grho,gpres,dgrho,dgq,dgpi, dgpi_diff,pidot_sum,clxnu_all)
+    ! JVR MOD BEGIN: modifying subroutine to compute extra terms
+    subroutine MassiveNuVarsOut(EV,y,yprime,a,adotoa,grho,gpres,dgrho,dgq,dgpi, dgpi_diff,pidot_sum,clxnu_all,dgpi_3wplus1,dgpi_3wplus2,dgpi_3wplus1plusbetak)
     implicit none
     type(EvolutionVars) EV
     real(dl) :: y(EV%nvar), yprime(EV%nvar),a, adotoa
     real(dl), optional :: grho,gpres,dgrho,dgq,dgpi, dgpi_diff,pidot_sum,clxnu_all
+    real(dl), optional :: dgpi_3wplus1, dgpi_3wplus2, dgpi_3wplus1plusbetak ! JVR MOD: extra terms
+    ! JVR MOD END
     !grho = a^2 kappa rho
     !gpres = a^2 kappa p
     !dgrho = a^2 kappa \delta\rho
@@ -1065,6 +1068,12 @@
         if (present(dgpi)) dgpi = dgpi  + grhonu_t*pinu
         if (present(dgpi_diff)) dgpi_diff = dgpi_diff + pinu*(3*gpnu_t-grhonu_t)
         if (present(pidot_sum)) pidot_sum = pidot_sum + grhonu_t*pinudot
+        ! JVR MOD BEGIN: computing the extra terms
+        if (present(dgpi_3wplus1)) dgpi_3wplus1 = dgpi_3wplus1 + grhonu_t*pinu * (3.d0*(pnu/rhonu) + 1.d0)
+        if (present(dgpi_3wplus2)) dgpi_3wplus2 = dgpi_3wplus2 + grhonu_t*pinu * (3.d0*(pnu/rhonu) + 2.d0)
+        if (present(dgpi_3wplus1plusbetak)) dgpi_3wplus1plusbetak = dgpi_3wplus1plusbetak + grhonu_t*pinu * &
+			(3.d0*(pnu/rhonu) + 1.d0 + 1.d0/EV%Kf(1))
+        ! JVR MOD END
     end do
     if (present(grho)) grho = grho  + grhonu
     if (present(dgrho)) dgrho= dgrho + dgrhonu
@@ -2137,6 +2146,110 @@
 
     end subroutine outtransf
 
+    ! JVR MOD BEGIN: adding the mu and Sigma functions and their time derivatives
+    function MG_mu(State,k,a,adotoa)
+	use constants
+	use results
+    use classes
+    class(CAMBdata), intent(inout) :: State
+    real(dl), intent(in) :: k, a, adotoa
+	real(dl) :: grhov_t, Omega_de
+    real(dl) :: MG_mu
+
+    ! Omega_de = grhov_t/grho_tot
+    ! dtauda = sqrt(3 / grhoa2)
+    ! 3*H^2 = grho_tot
+    call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t)
+    Omega_de = grhov_t/(3.0_dl*adotoa**2)
+
+    MG_mu = 1.d0 + CP%mu0 * Omega_de/State%Omega_de
+
+	end function MG_mu
+
+    function MG_mu_dot(State,k,a,adotoa,Hdot)
+	use constants
+	use results
+    use classes
+    use DarkEnergyInterface
+    class(CAMBdata), intent(inout) :: State
+    real(dl), intent(in) :: k, a, adotoa, Hdot
+    real(dl) MG_mu_dot
+    real(dl) :: grhov_t, w_de, grhode_dot, Omega_de_dot, w0, wa
+
+    select type(DE=>State%CP%DarkEnergy)
+    class is (TDarkEnergyEqnOfState)
+    w0 = DE%w_lam
+    wa = DE%wa
+    class default
+    w0 = -1.0_dl
+    wa = 0d0
+    end select
+
+    call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
+    ! grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+    ! Omega_de_dot = (grhode_dot - 2.0_dl*grhov_t/a**2*Hdot/adotoa)/3.0_dl/(adotoa**2)
+
+    ! Using equation from ISiTGR
+    Omega_de_dot = -grhov_t/(3.0_dl*adotoa**2) * ( 2.d0 * (Hdot - adotoa**2.d0)/adotoa + &
+					3.d0 * (1.d0+w0) * adotoa + 3.d0 * wa * adotoa * (1.d0-a) )
+
+    MG_mu_dot = CP%mu0*Omega_de_dot/State%Omega_de
+
+	end function MG_mu_dot
+
+    function MG_Sigma(State,k,a,adotoa)
+   	use constants
+	use results
+    use classes
+    class(CAMBdata), intent(inout) :: State
+    real(dl), intent(in) :: k, a, adotoa
+    real(dl) MG_Sigma, grhov_t, Omega_de
+
+    call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t)
+    Omega_de = grhov_t/3.0_dl/(adotoa**2)
+
+    MG_Sigma = 1.d0 + CP%Sigma0 * Omega_de/State%Omega_de
+
+	end function MG_Sigma
+
+    function MG_Sigma_dot(State,k,a,adotoa,Hdot)
+	use constants
+	use results
+    use classes
+    class(CAMBdata), intent(inout) :: State
+    real(dl), intent(in) :: k, a, adotoa, Hdot
+    real(dl) MG_Sigma_dot
+    real(dl) :: grhov_t, w_de, grhode_dot, Omega_de_dot, w0, wa
+
+    call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
+    !grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+
+    !Omega_de_dot = (grhode_dot - 2.0_dl*grhov_t/a**2*Hdot/adotoa)/3.0_dl/(adotoa**2)
+
+    select type(DE=>State%CP%DarkEnergy)
+    class is (TDarkEnergyEqnOfState)
+    w0 = DE%w_lam
+    wa = DE%wa
+    class default
+    w0 = -1.0_dl
+    wa = 0d0
+    end select
+
+    call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
+    ! grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+    ! Omega_de_dot = (grhode_dot - 2.0_dl*grhov_t/a**2*Hdot/adotoa)/3.0_dl/(adotoa**2)
+
+    ! Using equation from ISiTGR
+    Omega_de_dot = -grhov_t/(3.0_dl*adotoa**2) * ( 2.d0 * (Hdot - adotoa**2.d0)/adotoa + &
+					3.d0 * (1.d0+w0) * adotoa + 3.d0 * wa * adotoa * (1.d0-a) )
+
+    MG_Sigma_dot = CP%Sigma0*Omega_de_dot/State%Omega_de
+
+	end function MG_Sigma_dot
+
+    ! JVR MOD END: adding mu and Sigma functions and their time derivatives
+
+
     subroutine derivs(EV,n,tau,ay,ayprime)
     !  Evaluate the time derivatives of the scalar perturbations
     use constants, only : barssc0, Compton_CT, line21_const
@@ -2177,9 +2290,22 @@
     real(dl) ddopacity, visibility, dvisibility, ddvisibility, exptau, lenswindow
     real(dl) ISW, quadrupole_source, doppler, monopole_source, tau0, ang_dist
     real(dl) dgrho_de, dgq_de, cs2_de
+    ! JVR MOD BEGIN: adding new variables
+    real(dl) TGR_f_q, TGR_f_1, TGR_D_T, TGR_D_T_dot,TGR_Q_T,TGR_Q_T_dot
+    real(dl) etakdot, Hdot, TGR_rhoDeltadot !pidot_sum
+	real(dl) phipluspsi
+	real(dl) TGR_mu, TGR_mudot, TGR_eta, TGR_etadot, TGR_Sigma, TGR_Sigmadot !for MG functions
+	real(dl) TGR_f_mueta, TGR_f_muSigma, TGR_rhoDelta, dgpi_3wplus1, dgpi_3wplus2, dgpi_3wplus1plusbetak !for terms to compute etakdot
+	real(dl) TGR_Phi, TGR_Phidot, TGR_Psi, TGR_Psidot !MG source functions in Newtonian gauge
+	real(dl) betak, gpresv_t !CGQ for spatial curvature and Dark Energy parametrizations
+    ! JVR MOD END
 
     k=EV%k_buf
     k2=EV%k2_buf
+
+    ! JVR MOD BEGIN: computing curvature coefficient
+   	betak = 1.d0/EV%Kf(1)
+	! JVR MOD END
 
     !  Get background scale factor, sound speed and ionisation fraction.
     if (EV%TightCoupling) then
@@ -2239,13 +2365,21 @@
     dgrho = dgrho_matter
 
     if (EV%no_nu_multpoles) then
-        !RSA approximation of arXiv:1104.2933, dropping opactity terms in the velocity
-        !Approximate total density variables with just matter terms
-        z=(0.5_dl*dgrho/k + etak)/adotoa
-        dz= -adotoa*z - 0.5_dl*dgrho/k
-        clxr=-4*dz/k
-        qr=-4._dl/3*z
-        pir=0
+        ! JVR MOD BEGIN: changing to work with MG models
+        if (.not. CP%use_mg) then
+            !RSA approximation of arXiv:1104.2933, dropping opactity terms in the velocity
+            !Approximate total density variables with just matter terms
+            z=(0.5_dl*dgrho/k + etak)/adotoa
+            dz= -adotoa*z - 0.5_dl*dgrho/k
+            clxr=-4*dz/k
+            qr=-4._dl/3*z
+            pir=0
+        else
+            clxr=2*(grhoc_t*clxc+grhob_t*clxb)/3/k**2
+        	qr= clxr*k/sqrt((grhoc_t+grhob_t)/3)*(2/3._dl)
+        	pir=0
+        end if
+        ! JVR MOD END
     else
         !  Massless neutrinos
         clxr=ay(EV%r_ix)
@@ -2255,15 +2389,23 @@
 
     pig=0
     if (EV%no_phot_multpoles) then
-        if (.not. EV%no_nu_multpoles) then
-            z=(0.5_dl*dgrho/k + etak)/adotoa
-            dz= -adotoa*z - 0.5_dl*dgrho/k
-            clxg=-4*dz/k-4/k*opacity*(vb+z)
-            qg=-4._dl/3*z
+        ! JVR MOD BEGIN: photon multipoles in MG
+        if (.not. CP%use_mg) then
+            if (.not. EV%no_nu_multpoles) then
+                z=(0.5_dl*dgrho/k + etak)/adotoa
+                dz= -adotoa*z - 0.5_dl*dgrho/k
+                clxg=-4*dz/k-4/k*opacity*(vb+z)
+                qg=-4._dl/3*z
+            else
+                clxg=clxr-4/k*opacity*(vb+z)
+                qg=qr
+            end if
         else
-            clxg=clxr-4/k*opacity*(vb+z)
-            qg=qr
+            clxg=2*(grhoc_t*clxc+grhob_t*clxb)/3/k**2
+    	    qg= clxg*k/sqrt((grhoc_t+grhob_t)/3)*(2/3._dl)
+        	pig=0
         end if
+        ! JVR MOD END
     else
         !  Photons
         clxg=ay(EV%g_ix)
@@ -2289,17 +2431,180 @@
         dgq = dgq + dgq_de
     end if
 
-    !  Get sigma (shear) and z from the constraints
-    ! have to get z from eta for numerical stability
-    z=(0.5_dl*dgrho/k + etak)/adotoa
-    if (State%flat) then
-        !eta*k equation
-        sigma=(z+1.5_dl*dgq/k2)
-        ayprime(ix_etak)=0.5_dl*dgq
+
+    ! JVR MOD BEGIN: most of the MG modifications are in here, calculating the metric continuity
+    if (.not. CP%use_mg) then
+        !  Get sigma (shear) and z from the constraints
+        ! have to get z from eta for numerical stability
+        z=(0.5_dl*dgrho/k + etak)/adotoa
+        if (State%flat) then
+            !eta*k equation
+            sigma=(z+1.5_dl*dgq/k2)
+            ayprime(ix_etak)=0.5_dl*dgq
+        else
+            sigma=(z+1.5_dl*dgq/k2)/EV%Kf(1)
+            ayprime(ix_etak)=0.5_dl*dgq + State%curv*z
+        end if
     else
-        sigma=(z+1.5_dl*dgq/k2)/EV%Kf(1)
-        ayprime(ix_etak)=0.5_dl*dgq + State%curv*z
+        ! MG branch
+        gpresv_t = grhov_t * w_dark_energy_t
+        gpres = (grhog_t+grhor_t)/3.d0 + gpresv_t + gpres_nu
+        TGR_rhoDelta = dgrho+3.d0*adotoa*dgq/k
+        Hdot = -(grho+3.d0*gpres)/6.d0
+        dgpi = 0.d0
+        dgpi_3wplus1 = 0.d0
+        dgpi_3wplus2 = 0.d0
+        dgpi_3wplus1plusbetak = 0.d0
+
+        TGR_mu = MG_mu(State,k,a,adotoa)
+        TGR_mudot = MG_mu_dot(State,k,a,adotoa,Hdot)
+        TGR_Sigma = MG_Sigma(State,k,a,adotoa)
+        TGR_Sigmadot = MG_Sigma_dot(State,k,a,adotoa,Hdot)
+
+        !here we get the contributions for massive neutrinos to dgpi and dgpi_w
+        if (CP%Num_Nu_Massive /= 0) then
+            call MassiveNuVarsOut(EV, ay, ayprime, a, adotoa, dgpi=dgpi, dgpi_3wplus1=dgpi_3wplus1)
+        end if
+
+        !adding contributions from photons and massless neutrinos
+        dgpi = dgpi + grhor_t*pir + grhog_t*pig
+        dgpi_3wplus1 = dgpi_3wplus1 + 2.d0*(grhor_t*pir+grhog_t*pig) !!Note that (3w_rad+1)=(1+1)=2
+
+        !!getting the newtonian potentials for MG
+        TGR_Psi = -0.5d0*TGR_mu*(betak*TGR_rhoDelta+2.d0*dgpi)/k2
+        TGR_Phi = -TGR_Sigma*(betak*TGR_rhoDelta+dgpi)/k2-TGR_Psi
+
+        !Computing sigma_camb
+        sigma = etak/adotoa - k*TGR_Phi/adotoa
+
+        ! Computing photon and neutrino contributions for anisotropic stress
+        pidot_sum = 0.d0
+        if (EV%no_nu_multpoles) then
+            pirdot = 0.d0
+    	else
+	        if (EV%lmaxnr>2) then
+		        ix=EV%r_ix+2
+        	    pirdot=EV%denlk(2)*qr- EV%denlk2(2)*ay(ix+1)+8._dl/15._dl*k*sigma
+			else
+				pirdot=EV%denlk(2)*qr +8._dl/15._dl*k*sigma
+        	end if
+        end if
+		!here we add contribution by massless neutrinos
+		pidot_sum = pidot_sum + grhor_t*pirdot
+
+	    !contribution by photons -------------------------------------------------------------------
+    	if (EV%no_phot_multpoles) then
+        	pigdot=0.d0
+		else
+			if (EV%tightcoupling) then
+				pigdot=0.d0
+				pigdot = EV%pigdot
+
+				!Use explicit equations for photon moments if appropriate
+	        else
+    	        E2=ay(EV%polind+2)
+        	    polter = pig/10+9._dl/15*E2 !2/15*(3/4 pig + 9/2 E2)
+				if (EV%lmaxg>2) then
+                    ix= EV%g_ix+2
+                    pigdot=EV%denlk(2)*qg-EV%denlk2(2)*ay(ix+1)-opacity*(pig - polter) &
+                            +8._dl/15._dl*k*sigma
+				else !closed case
+					pigdot=EV%denlk(2)*qg-opacity*(pig - polter) +8._dl/15._dl*k*sigma
+				end if
+        	end if
+		end if
+		!here we add contribution by photons
+		pidot_sum = pidot_sum + grhog_t*pigdot
+
+		!contribution by massive neutrinos --------------------------------------------------------
+	    !  Massive neutrino equations of motion.
+    	if (State%CP%Num_Nu_massive >0) then
+	        !DIR$ LOOP COUNT MIN(1), AVG(1)
+    	    do nu_i = 1, State%CP%Nu_mass_eigenstates
+        	    if (EV%MassiveNuApprox(nu_i)) then
+            	    !Now EV%iq0 = clx, EV%iq0+1 = clxp, EV%iq0+2 = G_1, EV%iq0+3=G_2=pinu
+                	!see astro-ph/0203507
+	                G11_t=EV%G11(nu_i)/a/a2
+    	            G30_t=EV%G30(nu_i)/a/a2
+        	        off_ix = EV%nu_ix(nu_i)
+            	    w=wnu_arr(nu_i)
+	            !contains z    !ayprime(off_ix)=-k*z*(w+1) + 3*adotoa*(w*ay(off_ix) - ay(off_ix+1))-k*ay(off_ix+2)
+    	        !contains z    !ayprime(off_ix+1)=(3*w-2)*adotoa*ay(off_ix+1) - 5._dl/3*k*z*w - k/3*G11_t
+        	        ayprime(off_ix+2)=(3*w-1)*adotoa*ay(off_ix+2) - k*(2._dl/3*EV%Kf(1)*ay(off_ix+3)-ay(off_ix+1))
+            	    ayprime(off_ix+3)=(3*w-2)*adotoa*ay(off_ix+3) + 2*w*k*sigma - k/5*(3*EV%Kf(2)*G30_t-2*G11_t)
+	            else
+    	            ind=EV%nu_ix(nu_i)
+        	        !DIR$ LOOP COUNT MIN(3), AVG(3)
+            	    do i=1,EV%nq(nu_i)
+                	    q=State%NuPerturbations%nu_q(i)
+                    	aq=a*State%nu_masses(nu_i)/q
+	                    v=1._dl/sqrt(1._dl+aq*aq)
+
+    	            !contains z    !ayprime(ind)=-k*(4._dl/3._dl*z + v*ay(ind+1))
+        	            ind=ind+1
+            	        ayprime(ind)=v*(EV%denlk(1)*ay(ind-1)-EV%denlk2(1)*ay(ind+1))
+                	    ind=ind+1
+                    	if (EV%lmaxnu_tau(nu_i)==2) then
+	                        ayprime(ind)=-ayprime(ind-2) -3*cothxor*ay(ind)
+    	                else
+        	                ayprime(ind)=v*(EV%denlk(2)*ay(ind-1)-EV%denlk2(2)*ay(ind+1)) &
+            	                +k*8._dl/15._dl*sigma
+                	        do l=3,EV%lmaxnu_tau(nu_i)-1
+                    	        ind=ind+1
+                        	    ayprime(ind)=v*(EV%denlk(l)*ay(ind-1)-EV%denlk2(l)*ay(ind+1))
+	                        end do
+    	                    !  Truncate moment expansion.
+        	                ind = ind+1
+            	            ayprime(ind)=k*v*ay(ind-1)-(EV%lmaxnu_tau(nu_i)+1)*cothxor*ay(ind)
+                	    end if
+                    	ind = ind+1
+	                end do
+    	        end if
+        	end do
+
+	        if (EV%has_nu_relativistic) then
+    	        ind=EV%nu_pert_ix
+        	    ayprime(ind)=+k*a2*qr -k*ay(ind+1)
+            	ind2= EV%r_ix
+	            do l=1,EV%lmaxnu_pert-1
+    	            ind=ind+1
+        	        ind2=ind2+1
+            	    ayprime(ind)= -a2*(EV%denlk(l)*ay(ind2-1)-EV%denlk2(l)*ay(ind2+1)) &
+                	    +   (EV%denlk(l)*ay(ind-1)-EV%denlk2(l)*ay(ind+1))
+	            end do
+    	        ind=ind+1
+        	    ind2=ind2+1
+            	ayprime(ind)= k*(ay(ind-1) -a2*ay(ind2-1)) -(EV%lmaxnu_pert+1)*cothxor*ay(ind)
+	        end if
+
+			!here we add contribution by massive neutrinos to pidot_sum
+            call MassiveNuVarsOut(EV, ay, ayprime, a, adotoa, pidot_sum=pidot_sum)
+
+        end if
+
+        ! Calculate sigmadot
+        sigmadot = k*TGR_Psi - adotoa*sigma
+
+        ! Calculate etak_dot
+        TGR_f_muSigma = k2 + 1.5d0*betak*(2.d0*TGR_Sigma-TGR_mu)*((grhoc_t+grhob_t)+(grhor_t+grhog_t)*4.d0/3.d0+(grhonu_t+gpres_nu))
+
+        TGR_f_1 =  1.d0+3.d0*(adotoa**2.d0-Hdot)/k2
+
+        etakdot = k/(2.d0*TGR_f_muSigma)*(k*betak*(2.d0*TGR_Sigma-TGR_mu)*TGR_f_1*dgq + 2.d0*(TGR_mu-TGR_Sigma)*pidot_sum &
+                + TGR_rhoDelta*betak*((TGR_mudot-2.d0*TGR_Sigmadot)+2.d0*adotoa*(TGR_Sigma-TGR_mu)) + 2.d0*dgpi*(TGR_mudot &
+                -TGR_Sigmadot + adotoa*betak*(2.d0*TGR_Sigma-TGR_mu) - adotoa*TGR_mu) + k*sigma*(-2.d0*(adotoa**2.d0-Hdot) + betak* &
+                (2.d0*TGR_Sigma-TGR_mu)*((grhoc_t+grhob_t)+(grhor_t+grhog_t)*4.d0/3.d0+(grhonu_t+gpres_nu))) &
+                + 2.d0*adotoa*(TGR_Sigma-TGR_mu)*dgpi_3wplus1)
+
+        ayprime(ix_etak) = etakdot
+
+        ! Calculate z
+        z = sigma - 3.d0*etakdot/k2
+
+        TGR_Phidot = (etakdot - adotoa*sigmadot - Hdot*sigma)/k
+
     end if
+    ! JVR MOD END
 
     if (.not. EV%is_cosmological_constant) &
         call State%CP%DarkEnergy%PerturbationEvolve(ayprime, w_dark_energy_t, &
@@ -2363,11 +2668,17 @@
             ! by Francis-Yan Cyr-Racine simplified (inconsistently) by AL assuming flat
             !AL: First order slip seems to be fine here to 2e-4
 
-            !  8*pi*G*a*a*SUM[rho_i*sigma_i]
-            dgs = grhog_t*pig+grhor_t*pir
+            ! JVR MOD BEGIN: sigma_dot
+            if (.not. CP%use_mg) then
+                !  8*pi*G*a*a*SUM[rho_i*sigma_i]
+                dgs = grhog_t*pig+grhor_t*pir
 
-            ! Define shear derivative to first order
-            sigmadot = -2*adotoa*sigma-dgs/k+etak
+                ! Define shear derivative to first order
+                sigmadot = -2*adotoa*sigma-dgs/k+etak
+            else
+                sigmadot = k*TGR_Psi - adotoa*sigma
+            end if
+            ! JVR MOD END
 
             !Once know slip, recompute qgdot, pig, pigdot
             qgdot = k*(clxg/4._dl-pig/2._dl) +opacity*slip
@@ -2690,7 +3001,12 @@
             State%CP%DarkEnergy%diff_rhopi_Add_Term(dgrho_de, dgq_de, grho, &
             gpres, w_dark_energy_t, State%grhok, adotoa, &
             EV%kf(1), k, grhov_t, z, k2, ayprime, ay, EV%w_ix)
-        phi = -((dgrho +3*dgq*adotoa/k)/EV%Kf(1) + dgpi)/(2*k2)
+        ! JVR MOD BEGIN: computing phi
+        if (.not. CP%use_mg) then
+            phi = -((dgrho +3*dgq*adotoa/k)/EV%Kf(1) + dgpi)/(2*k2)
+        else
+            phi = (TGR_Psi+TGR_Phi)/2._dl
+        end if
 
         if (associated(EV%OutputTransfer)) then
             EV%OutputTransfer(Transfer_kh) = k/(State%CP%h0/100._dl)
@@ -2736,29 +3052,55 @@
                 visibility, dvisibility, ddvisibility, exptau, lenswindow)
 
             tau0 = State%tau0
-            phidot = (1.0d0/2.0d0)*(adotoa*(-dgpi - 2*k2*phi) + dgq*k - &
-                diff_rhopi+ k*sigma*(gpres + grho))/k2
-            !time derivative of shear
-            sigmadot = -adotoa*sigma - 1.0d0/2.0d0*dgpi/k + k*phi
-            !quadrupole source derivatives; polter = pi_g/10 + 3/5 E_2
-            polter = pig/10+9._dl/15*E(2)
-            polterdot = (1.0d0/10.0d0)*pigdot + (3.0d0/5.0d0)*Edot(2)
-            polterddot = -2.0d0/25.0d0*adotoa*dgq/(k*EV%Kf(1)) - 4.0d0/75.0d0*adotoa* &
-                k*sigma - 4.0d0/75.0d0*dgpi - 2.0d0/75.0d0*dgrho/EV%Kf(1) - 3.0d0/ &
-                50.0d0*k*octgdot*EV%Kf(2) + (1.0d0/25.0d0)*k*qgdot - 1.0d0/5.0d0 &
-                *k*EV%Kf(2)*Edot(3) + (-1.0d0/10.0d0*pig + (7.0d0/10.0d0)* &
-                polter - 3.0d0/5.0d0*E(2))*dopacity + (-1.0d0/10.0d0*pigdot &
-                + (7.0d0/10.0d0)*polterdot - 3.0d0/5.0d0*Edot(2))*opacity
-            !Temperature source terms, after integrating by parts in conformal time
 
-            !2phi' term (\phi' + \psi' in Newtonian gauge), phi is the Weyl potential
-            ISW = 2*phidot*exptau
-            monopole_source =  (-etak/(k*EV%Kf(1)) + 2*phi + clxg/4)*visibility
-            doppler = ((sigma + vb)*dvisibility + (sigmadot + vbdot)*visibility)/k
-            quadrupole_source = (5.0d0/8.0d0)*(3*polter*ddvisibility + 6*polterdot*dvisibility &
-                + (k**2*polter + 3*polterddot)*visibility)/k**2
+            ! JVR MOD BEGIN: changes to work with MG and GR
+            if (.not. CP%use_mg) then
+                phidot = (1.0d0/2.0d0)*(adotoa*(-dgpi - 2*k2*phi) + dgq*k - &
+                    diff_rhopi+ k*sigma*(gpres + grho))/k2
+                !time derivative of shear
+                sigmadot = -adotoa*sigma - 1.0d0/2.0d0*dgpi/k + k*phi
+                !quadrupole source derivatives; polter = pi_g/10 + 3/5 E_2
+                polter = pig/10+9._dl/15*E(2)
+                polterdot = (1.0d0/10.0d0)*pigdot + (3.0d0/5.0d0)*Edot(2)
+                polterddot = -2.0d0/25.0d0*adotoa*dgq/(k*EV%Kf(1)) - 4.0d0/75.0d0*adotoa* &
+                    k*sigma - 4.0d0/75.0d0*dgpi - 2.0d0/75.0d0*dgrho/EV%Kf(1) - 3.0d0/ &
+                    50.0d0*k*octgdot*EV%Kf(2) + (1.0d0/25.0d0)*k*qgdot - 1.0d0/5.0d0 &
+                    *k*EV%Kf(2)*Edot(3) + (-1.0d0/10.0d0*pig + (7.0d0/10.0d0)* &
+                    polter - 3.0d0/5.0d0*E(2))*dopacity + (-1.0d0/10.0d0*pigdot &
+                    + (7.0d0/10.0d0)*polterdot - 3.0d0/5.0d0*Edot(2))*opacity
+                !Temperature source terms, after integrating by parts in conformal time
 
-            EV%OutputSources(1) = ISW + doppler + monopole_source + quadrupole_source
+                !2phi' term (\phi' + \psi' in Newtonian gauge), phi is the Weyl potential
+                ISW = 2*phidot*exptau
+                monopole_source =  (-etak/(k*EV%Kf(1)) + 2*phi + clxg/4)*visibility
+                doppler = ((sigma + vb)*dvisibility + (sigmadot + vbdot)*visibility)/k
+                quadrupole_source = (5.0d0/8.0d0)*(3*polter*ddvisibility + 6*polterdot*dvisibility &
+                    + (k**2*polter + 3*polterddot)*visibility)/k**2
+
+                EV%OutputSources(1) = ISW + doppler + monopole_source + quadrupole_source
+            else
+                polter = pig/10+9._dl/15*E(2)
+                ! Calculate Psidot for ISW
+                TGR_Psidot = -TGR_mudot/(2.d0*k2)*(betak*TGR_rhoDelta+2.d0*dgpi) &
+							+ TGR_mu/(2.d0*k2)*(adotoa*betak*TGR_rhoDelta - 2.d0*pidot_sum + &
+        	    			k*betak*TGR_f_1*dgq + 2.d0*adotoa*dgpi_3wplus1 + 2.d0*betak*adotoa*dgpi &
+							+ (TGR_f_1*sigma*k-3.d0*(TGR_Phidot+adotoa*TGR_Psi))* &
+							betak*(grhoc_t+grhob_t+(grhor_t+grhog_t)*4.d0/3.d0+grhonu_t+gpres_nu))
+                phidot = (TGR_Psidot+TGR_Phidot)/2._dl
+
+                ISW = (2._dl*phidot)*exptau
+
+ 		    	EV%OutputSources(1) = ISW + visibility*pig/16.d0+(3.D0/8.D0*E(2)+clxg/4.d0)*visibility&
+                +(11.D0/10.D0*dvisibility &
+                *sigma+(-3.D0/8.D0*EV%Kf(2)*E(3)-9.D0/80.D0*EV%Kf(2)*octg+3.D0/40.D0*qg+vb) &
+                *dvisibility+(3.D0/40.D0*qgdot+21.D0/10.D0*sigmadot+vbdot-9.D0/80.D0*EV%Kf(2) &
+                *octgdot-3.D0/8.D0*EV%Kf(2)*Edot(3))*visibility)/k+((3.D0/16.D0*ddvisibility &
+                -9.D0/160.D0*visibility*dopacity-9.D0/160.D0*dvisibility*opacity)*pig+(9.D0/8.D0 &
+                *Edot(2)+3.D0/16.D0*pigdot-27.D0/80.D0*opacity*E(2))*dvisibility &
+                +((-9.D0/160.D0*pigdot-27.D0/80.D0*Edot(2))*opacity-27.D0/80.D0 &
+                *dopacity*E(2))*visibility+9.D0/8.D0*ddvisibility*E(2))/k**2
+            end if
+            ! JVR MOD END
             ang_dist = f_K(tau0-tau)
             if (tau < tau0) then
                 !E polarization source
@@ -2769,8 +3111,14 @@
             if (size(EV%OutputSources) > 2) then
                 !Get lensing sources
                 if (tau>State%tau_maxvis .and. tau0-tau > 0.1_dl) then
-                    EV%OutputSources(3) = -2*phi*f_K(tau-State%tau_maxvis)/(f_K(tau0-State%tau_maxvis)*ang_dist)
-                    !We include the lensing factor of two here
+                    ! JVR MOD BEGIN
+                    if (.not. CP%use_mg) then
+                    	EV%OutputSources(3) = -2*phi*f_K(tau-State%tau_maxvis)/(f_K(tau0-State%tau_maxvis)*ang_dist)
+                    	!We include the lensing factor of two here
+					else
+						EV%OutputSources(3) = -(TGR_Phi+TGR_Psi)*f_K(tau-State%tau_maxvis)/(f_K(tau0-State%tau_maxvis)*f_K(tau0-tau)) !CGQ
+					end if
+                    ! JVR MOD END
                 end if
             end if
             if (State%num_redshiftwindows > 0) then
