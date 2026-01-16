@@ -2153,12 +2153,16 @@
     use classes
     class(CAMBdata), intent(inout) :: State
     real(dl), intent(in) :: k, a, adotoa
-	real(dl) :: grhov_t
+	real(dl) :: grhov_t, Omega_de
     real(dl) :: MG_mu
 
+    ! Omega_de = grhov_t/grho_tot
+    ! dtauda = sqrt(3 / grhoa2)
+    ! 3*H^2 = grho_tot
     call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t)
+    Omega_de = grhov_t/(3.0_dl*adotoa**2)
 
-    MG_mu = 1.d0 + CP%mu0 * grhov_t/State%grhov/(a**2) ! JVR NOTE: BackgroundDensityAndPressure returns 8*pi*G*rho*a^2
+    MG_mu = 1.d0 + CP%mu0 * Omega_de/State%Omega_de
 
 	end function MG_mu
 
@@ -2166,16 +2170,27 @@
 	use constants
 	use results
     use classes
+    use DarkEnergyInterface
     class(CAMBdata), intent(inout) :: State
     real(dl), intent(in) :: k, a, adotoa, Hdot
     real(dl) MG_mu_dot
-    real(dl) :: grhov_t, w_de, grhode_dot
+    real(dl) :: grhov_t, w_de, grhode_dot, Omega_de_dot, w0, wa
+
+    select type(DE=>State%CP%DarkEnergy)
+    class is (TDarkEnergyEqnOfState)
+    w0 = DE%w_lam
+    wa = DE%wa
+    end select
 
     call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
+    ! grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+    ! Omega_de_dot = (grhode_dot - 2.0_dl*grhov_t/a**2*Hdot/adotoa)/3.0_dl/(adotoa**2)
 
-    grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+    ! Using equation from ISiTGR
+    Omega_de_dot = -grhov_t/(3.0_dl*adotoa**2) * ( 2.d0 * (Hdot - adotoa**2.d0)/adotoa + &
+					3.d0 * (1.d0+w0) * adotoa + 3.d0 * wa * adotoa * (1.d0-a) )
 
-    MG_mu_dot = CP%mu0*grhode_dot/State%grhov
+    MG_mu_dot = CP%mu0*Omega_de_dot/State%Omega_de
 
 	end function MG_mu_dot
 
@@ -2185,10 +2200,12 @@
     use classes
     class(CAMBdata), intent(inout) :: State
     real(dl), intent(in) :: k, a, adotoa
-    real(dl) MG_Sigma, grhov_t
+    real(dl) MG_Sigma, grhov_t, Omega_de
 
     call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t)
-    MG_Sigma = 1.d0 + CP%Sigma0 * grhov_t/State%grhov/(a**2) ! JVR NOTE: BackgroundDensityAndPressure returns 8*pi*G*rho*a^2
+    Omega_de = grhov_t/3.0_dl/(adotoa**2)
+
+    MG_Sigma = 1.d0 + CP%Sigma0 * Omega_de/State%Omega_de
 
 	end function MG_Sigma
 
@@ -2199,12 +2216,28 @@
     class(CAMBdata), intent(inout) :: State
     real(dl), intent(in) :: k, a, adotoa, Hdot
     real(dl) MG_Sigma_dot
-    real(dl) :: grhov_t, w_de, grhode_dot
+    real(dl) :: grhov_t, w_de, grhode_dot, Omega_de_dot, w0, wa
 
     call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
-    grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+    !grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
 
-    MG_Sigma_dot = CP%Sigma0*grhode_dot/State%grhov
+    !Omega_de_dot = (grhode_dot - 2.0_dl*grhov_t/a**2*Hdot/adotoa)/3.0_dl/(adotoa**2)
+
+    select type(DE=>State%CP%DarkEnergy)
+    class is (TDarkEnergyEqnOfState)
+    w0 = DE%w_lam
+    wa = DE%wa
+    end select
+
+    call State%CP%DarkEnergy%BackgroundDensityAndPressure(State%grhov, a, grhov_t, w_de)
+    ! grhode_dot = -3.0_dl*adotoa*(1.0_dl + w_de) ! JVR NOTE: using the continuity equation for computing derivative of rho wrt conformal time
+    ! Omega_de_dot = (grhode_dot - 2.0_dl*grhov_t/a**2*Hdot/adotoa)/3.0_dl/(adotoa**2)
+
+    ! Using equation from ISiTGR
+    Omega_de_dot = -grhov_t/(3.0_dl*adotoa**2) * ( 2.d0 * (Hdot - adotoa**2.d0)/adotoa + &
+					3.d0 * (1.d0+w0) * adotoa + 3.d0 * wa * adotoa * (1.d0-a) )
+
+    MG_Sigma_dot = CP%Sigma0*Omega_de_dot/State%Omega_de
 
 	end function MG_Sigma_dot
 
