@@ -147,6 +147,12 @@
         real(dl)  :: Nu_mass_fractions(max_nu) !The ratios of the total densities
         integer   :: Nu_mass_numbers(max_nu) !physical number per eigenstate
 
+        ! JVR MOD BEGIN: adding new flag and parameters for MG
+        logical :: use_mg = .false.
+        real(dl) :: mu0 = 0.0_dl
+        real(dl) :: Sigma0 = 0.0_dl
+        ! JVR MOD END
+
         class(TInitialPower), allocatable :: InitPower
         class(TRecombinationModel), allocatable :: Recomb
         class(TReionizationModel), allocatable :: Reion
@@ -184,6 +190,7 @@
         logical :: Log_lvalues  = .false. !useful for smooth results at very high L
         logical :: use_cl_spline_template = .true.
         integer :: min_l_logl_sampling = 5000 ! increase to use linear sampling for longer
+
 
         Type(TSourceWindowHolder), allocatable :: SourceWindows(:)
 
