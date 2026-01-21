@@ -2179,15 +2179,13 @@
             MG_mu = 1.0d0
             return
         else if (log_a >= State%CP%log_a(alpha_B_len)) then
-            alpha_B = State%CP%alpha_B(alpha_B_len)
-            MG_mu = 1.0d0 + alpha_B**(2.0_dl)/2.0_dl/(cs2*(State%CP%alpha_K + 1.5_dl*alpha_B**2))
+            MG_mu = State%CP%mu(alpha_B_len)
             return
         else
             do i = 2, alpha_B_len
                 if (log_a <= State%CP%log_a(i)) then
                     t = (log_a - State%CP%log_a(i-1))/(State%CP%log_a(i) - State%CP%log_a(i-1))
-                    alpha_B = State%CP%alpha_B(i-1) + (State%CP%alpha_B(i)-State%CP%alpha_B(i-1))*t
-                    MG_mu = 1.0d0 + alpha_B**(2.0_dl)/2.0_dl/(cs2*(State%CP%alpha_K + 1.5_dl*alpha_B**2))
+                    MG_mu = State%CP%mu(i-1) + (State%CP%mu(i)-State%CP%mu(i-1))*t
                     return
                 end if
             end do
@@ -2234,22 +2232,14 @@
             MG_mu_dot = 0.0d0
             return
         else if (log_a >= State%CP%log_a(alpha_B_len)) then
-            alpha_B = State%CP%alpha_B(alpha_B_len)
-            alpha_B_dot = (State%CP%alpha_B(alpha_B_len)-State%CP%alpha_B(alpha_B_len-1)) \
-                          / (State%CP%log_a(alpha_B_len) - State%CP%log_a(alpha_B_len-1)) ! Here is deriv wrt log(a)
-            alpha_B_dot = alpha_B_dot*adotoa ! Convert to deriv wrt conformal time
-            MG_mu_dot = alpha_B*alpha_B_dot/(cs2*(State%CP%alpha_K + 1.5_dl*alpha_B**2)) \
-                    * (1.0_dl - 3.0_dl*alpha_B**(2.0_dl)/2.0_dl/(State%CP%alpha_K + 1.5_dl*alpha_B**2))
+            MG_mu_dot = (State%Cp%mu(alpha_B_len)-State%Cp%mu(alpha_B_len-1)) \
+                        / (State%Cp%log_a(alpha_B_len)-State%Cp%log_a(alpha_B_len-1)) * adotoa
             return
         else
             do i = 2, alpha_B_len
                 if (log_a <= State%CP%log_a(i)) then
-                    t = (log_a - State%CP%log_a(i-1))/(State%CP%log_a(i) - State%CP%log_a(i-1))
-                    alpha_B = State%CP%alpha_B(i-1) + (State%CP%alpha_B(i)-State%CP%alpha_B(i-1))*t
-                    alpha_B_dot = (State%CP%alpha_B(i)-State%CP%alpha_B(i-1))/(State%CP%log_a(i) - State%CP%log_a(i-1)) ! Here is deriv wrt log(a)
-                    alpha_B_dot = alpha_B_dot*adotoa ! Convert to deriv wrt conformal time
-                    MG_mu_dot = alpha_B*alpha_B_dot/(cs2*(State%CP%alpha_K + 1.5_dl*alpha_B**2)) \
-                    * (1.0_dl - 3.0_dl*alpha_B**(2.0_dl)/2.0_dl/(State%CP%alpha_K + 1.5_dl*alpha_B**2))
+                    MG_mu_dot = (State%Cp%mu(i)-State%Cp%mu(i-1)) \
+                        / (State%Cp%log_a(i)-State%Cp%log_a(i-1)) * adotoa
                     return
                 end if
             end do

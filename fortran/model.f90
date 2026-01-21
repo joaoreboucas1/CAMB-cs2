@@ -163,6 +163,7 @@
         real(dl) :: alpha_K = -10.0_dl       ! Kineticity
         real(dl) :: log_a(alpha_B_len) = 0   ! Interpolator for alpha_B
         real(dl) :: alpha_B(alpha_B_len) = 0 ! Interpolator for alpha_B
+        real(dl) :: mu(alpha_B_len) = 0      ! Interpolator for mu and Sigma
         ! JVR MOD END
 
         class(TInitialPower), allocatable :: InitPower
