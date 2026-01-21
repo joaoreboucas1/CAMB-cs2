@@ -74,8 +74,14 @@
 
     subroutine TDarkEnergyFluid_Init(this, State)
     use classes
+    use results
     class(TDarkEnergyFluid), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+    class(TCAMBdata), intent(inout), target :: State
+    ! JVR MOD BEGIN: adding variables for integrating alpha_B
+    real(dl), parameter :: a_ini = 1e-5, alpha_B_ini = 0d0
+    real(dl) :: a, dalpha_B, dlog_a, rho_de, rho_m, rho_gamma, rho_tot, w_tot, last_term, w_de
+    integer :: i
+    ! JVR MOD END
 
     call this%TDarkEnergyEqnOfState%Init(State)
 
@@ -91,6 +97,31 @@
         end if
         this%num_perturb_equations = 2
     end if
+
+    ! JVR MOD BEGIN: populating array of alpha_B and log_a
+    select type(State)
+    class is (CAMBData)
+        if (State%CP%use_cs2) then
+            State%CP%alpha_B(1) = alpha_B_ini
+            State%CP%log_a(1) = log(a_ini)
+            dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
+            do i = 1, alpha_B_len-1
+                a = exp(State%CP%log_a(i))
+                rho_de = State%Omega_de * a**(-3.0_dl*(1.0 + this%w_lam + this%wa)) * exp(-3.0_dl*this%wa*(1.0_dl - a))
+                rho_m  = (State%grhoc + State%grhob)/State%grhocrit * a**(-3.0_dl)
+                rho_gamma  = (State%grhog + State%grhornomass)/State%grhocrit * a**(-4.0_dl)
+                rho_tot = rho_gamma + rho_m + rho_de
+                w_de = this%w_lam + this%wa*(1.0_dl - a)
+                w_tot = (rho_gamma/3.0_dl + w_de*rho_de)/rho_tot
+                last_term = (4.0*rho_gamma/3.0 + rho_m)/rho_tot
+                dalpha_B = this%cs2_0*(State%CP%alpha_K + 1.5_dl*State%CP%alpha_B(i)**(2.0_dl)) \
+                           + (State%CP%alpha_B(i) - 2.0_dl)*(1.5_dl*(1.0_dl + w_tot) + 0.5_dl*State%CP%alpha_B(i)) + 3.0_dl*last_term
+                State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
+                State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
+            end do
+        end if
+    end select
+    ! JVR MOD END
 
     end subroutine TDarkEnergyFluid_Init
 
@@ -185,7 +216,7 @@
     subroutine TAxionEffectiveFluid_Init(this, State)
     use classes
     class(TAxionEffectiveFluid), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+    class(TCAMBdata), intent(inout), target :: State
     real(dl) :: grho_rad, F, p, mu, xc, n
 
     select type(State)

@@ -104,6 +104,14 @@
     integer, parameter :: NonLinear_none=0, NonLinear_Pk =1, NonLinear_Lens=2
     integer, parameter :: NonLinear_both=3
 
+    ! JVR MOD BEGIN: enumeration for MG parametrizations
+    integer, parameter :: MG_SigMu=0, MG_cs2=1
+    ! JVR MOD END
+
+    ! JVR MOD BEGIN: define length of alpha_B array
+    integer, parameter :: alpha_B_len = 200
+    ! JVR MOD END
+
     ! Main parameters type
     type, extends (TCAMBParameters) :: CAMBparams
         logical   :: WantCls  = .true.
@@ -149,8 +157,12 @@
 
         ! JVR MOD BEGIN: adding new flag and parameters for MG
         logical :: use_mg = .false.
+        logical :: use_cs2 = .false.
         real(dl) :: mu0 = 0.0_dl
         real(dl) :: Sigma0 = 0.0_dl
+        real(dl) :: alpha_K = -10.0_dl       ! Kineticity
+        real(dl) :: log_a(alpha_B_len) = 0   ! Interpolator for alpha_B
+        real(dl) :: alpha_B(alpha_B_len) = 0 ! Interpolator for alpha_B
         ! JVR MOD END
 
         class(TInitialPower), allocatable :: InitPower

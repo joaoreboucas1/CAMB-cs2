@@ -257,6 +257,14 @@ class CustomSources(CAMB_Structure):
         ("custom_source_ell_scales", AllocatableArrayInt, "scaling in L for outputs"),
     ]
 
+# JVR MOD BEGIN: enum for MG parametrization
+MG_SigMu = 0
+MG_cs2 = 1
+# JVR MOD END
+
+# JVR MOD BEGIN: define size of alpha_B array
+alpha_B_len = 200
+# JVR MOD END
 
 @fortran_class
 class CAMBparams(F2003Class):
@@ -333,8 +341,12 @@ class CAMBparams(F2003Class):
         ),
         # JVR MOD BEGIN: adding flag and parameters for MG in Python interface
         ("use_mg", c_bool, "Flag for using modified gravity"),
+        ("use_cs2", c_bool, "Flag for using MG-cs2 parametrization"),
         ("mu0", c_double, "Parameter \\mu_0 for Sigma-mu parametrization"),
         ("Sigma0", c_double, "Parameter \\Sigma_0 for Sigma-mu parametrization"),
+        ("alpha_K", c_double, "MG Kineticity"),
+        ("log_a", c_double*alpha_B_len, "Interpolators for alpha_B function"),
+        ("alpha_B", c_double*alpha_B_len, "Interpolators for alpha_B function"),
         # JVR MOD END
         ("InitPower", AllocatableObject(InitialPower)),
         ("Recomb", AllocatableObject(recomb.RecombinationModel)),
@@ -627,7 +639,9 @@ class CAMBparams(F2003Class):
         setter_H0=None,
         # JVR MOD BEGIN: add MG parameters to setters
         mu0=0,
-        Sigma0=0
+        Sigma0=0,
+        use_cs2=False,
+        alpha_K=0
         # JVR MOD END
     ):
         r"""
@@ -701,13 +715,18 @@ class CAMBparams(F2003Class):
         self.omch2 = omch2
         self.Alens = Alens
 
-        # JVR MOD BEGIN: setting MG parameters in class]
-        if (abs(mu0) < 1e-3 and abs(Sigma0) < 1e-3):
-            self.use_mg = False
+        # JVR MOD BEGIN: setting MG parameters in class
+        if not use_cs2:
+            if (abs(mu0) < 1e-3 and abs(Sigma0) < 1e-3):
+                self.use_mg = False
+            else:
+                self.use_mg = True
+                self.mu0 = mu0
+                self.Sigma0 = Sigma0
         else:
+            self.use_cs2 = True
+            self.alpha_K = alpha_K
             self.use_mg = True
-            self.mu0 = mu0
-            self.Sigma0 = Sigma0
         # JVR MOD END
 
         neutrino_mass_fac = constants.neutrino_mass_fac * (constants.COBE_CMBTemp / TCMB) ** 3

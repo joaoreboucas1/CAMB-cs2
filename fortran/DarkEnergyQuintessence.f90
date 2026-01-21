@@ -112,7 +112,7 @@
 
     subroutine TQuintessence_Init(this, State)
     class(TQuintessence), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+    class(TCAMBdata), intent(inout), target :: State
 
     !Make interpolation table, etc,
     !At this point massive neutrinos have been initialized
@@ -301,7 +301,7 @@
     subroutine TEarlyQuintessence_Init(this, State)
     use Powell
     class(TEarlyQuintessence), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+    class(TCAMBdata), intent(inout), target :: State
     real(dl) aend, afrom
     integer, parameter ::  NumEqs=2
     real(dl) c(24),w(NumEqs,9), y(NumEqs)

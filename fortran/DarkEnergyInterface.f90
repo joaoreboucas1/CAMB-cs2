@@ -76,7 +76,10 @@
     subroutine Init(this, State)
     use classes
     class(TDarkEnergyModel), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+    ! JVR MOD BEGIN: changing intent of `State` to `inout`
+    ! Note that this change also affects every method that overrides `Init` in other classes that inherit from TDarkEnergyModel
+    class(TCAMBdata), intent(inout), target :: State
+    ! JVR MOD END
 
     end subroutine Init
 
@@ -278,7 +281,7 @@
     subroutine TDarkEnergyEqnOfState_Init(this, State)
     use classes
     class(TDarkEnergyEqnOfState), intent(inout) :: this
-    class(TCAMBdata), intent(in), target :: State
+    class(TCAMBdata), intent(inout), target :: State
 
     this%is_cosmological_constant = .not. this%use_tabulated_w .and. &
         &  abs(this%w_lam + 1._dl) < 1.e-6_dl .and. this%wa==0._dl
