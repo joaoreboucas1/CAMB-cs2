@@ -59,7 +59,7 @@
     ! JVR MOD BEGIN: adding variables for integrating alpha_B
     real(dl), parameter :: a_ini = 1e-5, alpha_B_ini = 0d0
     real(dl) :: a, dalpha_B, dlog_a, rho_de, rho_m, rho_gamma, rho_tot, w_tot, last_term, w_de
-    integer :: i
+    integer :: i, j
     ! JVR MOD END
 
     call this%TDarkEnergyEqnOfState%Init(State)
@@ -83,6 +83,18 @@
                              / (2.0_dl*this%cs2_0*(State%CP%alpha_K + 1.5_dl*State%CP%alpha_B(1)**(2.0_dl)))
             dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
             do i = 1, alpha_B_len-1
+                if (State%CP%alpha_B(i)*State%CP%alpha_B(i) > 1e6*State%CP%alpha_K) then
+                    ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
+                    ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
+                    ! In practice, I enforce this with the threshold defined above in the `if` statement
+                    ! And then I just fill the rest of the arrays with the last values and break out of the integration loop
+                    do j = i, alpha_B_len
+                        State%CP%log_a(j) = State%CP%log_a(1) + (j-1)*dlog_a
+                        State%CP%alpha_B(j) = State%CP%alpha_B(i)
+                        State%CP%mu(j) = State%CP%mu(i)
+                    end do
+                    exit
+                end if
                 a = exp(State%CP%log_a(i))
                 rho_de = State%Omega_de * a**(-3.0_dl*(1.0 + this%w_lam + this%wa)) * exp(-3.0_dl*this%wa*(1.0_dl - a))
                 rho_m  = (State%grhoc + State%grhob)/State%grhocrit * a**(-3.0_dl)
