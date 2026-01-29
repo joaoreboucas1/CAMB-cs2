@@ -82,16 +82,15 @@
             State%CP%log_a(1) = log(a_ini)
             alpha_K = State%CP%alpha_K_0
             if (State%CP%alpha_K_parametrization .eq. 1) then
-                call this%BackgroundDensityAndPressure(state%grhov, a, grho_de)
-                grho_tot = State%grho_no_de(a)/(a**2.0_dl) + grho_de
+                call this%BackgroundDensityAndPressure(state%grhov, a_ini, grho_de)
+                grho_tot = State%grho_no_de(a_ini)/(a_ini**2) + grho_de
                 alpha_K = alpha_K*grho_de/grho_tot/State%Omega_DE
             end if
-            State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2.0_dl) \
-                             / (2.0_dl*this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(1)**(2.0_dl)))
+            State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
+                             / (2.0_dl*this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(1)**(2)))
             dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
             do i = 1, alpha_B_len-1
-                if (State%CP%alpha_K_parametrization .eq. 0 .and. \
-                    State%CP%alpha_B(i)*State%CP%alpha_B(i) > 1e6*alpha_K) then
+                if (State%CP%alpha_B(i)**2 > 1e6*alpha_K) then
                     ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
                     ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
                     ! In practice, I enforce this with the threshold defined above in the `if` statement
@@ -110,7 +109,7 @@
                 grho_no_de_t = State%grho_no_de(a)/a/a ! NOTE: grho_no_de returns 8*pi*G*a^4*rho
                 grho_tot = grho_no_de_t + grho_de
 
-                gpres_no_de = 0.0
+                gpres_no_de = 0.0 ! NOTE: counts 8*pi*G*a^2*P, the pressure of photons, massless and massive nu
                 if (State%CP%Num_Nu_Massive > 0) then
                     do nu_i = 1, State%CP%nu_mass_eigenstates
                         call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
@@ -118,7 +117,7 @@
                     end do
                 end if
 
-                gpres_no_de = gpres_no_de + (State%grhog + State%grhornomass)/3.0_dl/a/a
+                gpres_no_de = gpres_no_de + (State%grhog + State%grhornomass)/3.0_dl/a**2
 
                 w_tot = (gpres_no_de + w_de*grho_de)/grho_tot
 
@@ -127,13 +126,14 @@
                 if (State%CP%alpha_K_parametrization .eq. 1) then
                     alpha_K = alpha_K*grho_de/grho_tot/State%Omega_DE
                 end if
-                dalpha_B = this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(i)**(2.0_dl)) \
+
+                dalpha_B = this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(i)**(2)) \
                            + (State%CP%alpha_B(i) - 2.0_dl)*(1.5_dl*(1.0_dl + w_tot) + 0.5_dl*State%CP%alpha_B(i))\
                            + 3.0_dl*last_term
                 State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
                 State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
-                State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2.0_dl) \
-                             / (2.0_dl*this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(i+1)**(2.0_dl)))
+                State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
+                             / (2.0_dl*this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(i+1)**(2)))
             end do
         end if
     end select
