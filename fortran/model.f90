@@ -160,10 +160,11 @@
         logical :: use_cs2 = .false.
         real(dl) :: mu0 = 0.0_dl
         real(dl) :: Sigma0 = 0.0_dl
-        real(dl) :: alpha_K = -10.0_dl       ! Kineticity
-        real(dl) :: log_a(alpha_B_len) = 0   ! Interpolator for alpha_B
-        real(dl) :: alpha_B(alpha_B_len) = 0 ! Interpolator for alpha_B
-        real(dl) :: mu(alpha_B_len) = 0      ! Interpolator for mu and Sigma
+        integer  :: alpha_K_parametrization = 0 ! 0 for constant, 1 for proportional to \Omega_DE(a)
+        real(dl) :: alpha_K_0 = 1.0_dl          ! Kineticity
+        real(dl) :: log_a(alpha_B_len) = 0      ! Interpolator for alpha_B
+        real(dl) :: alpha_B(alpha_B_len) = 0    ! Interpolator for alpha_B
+        real(dl) :: mu(alpha_B_len) = 0         ! Interpolator for mu and Sigma
         ! JVR MOD END
 
         class(TInitialPower), allocatable :: InitPower

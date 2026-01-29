@@ -344,7 +344,8 @@ class CAMBparams(F2003Class):
         ("use_cs2", c_bool, "Flag for using MG-cs2 parametrization"),
         ("mu0", c_double, "Parameter \\mu_0 for Sigma-mu parametrization"),
         ("Sigma0", c_double, "Parameter \\Sigma_0 for Sigma-mu parametrization"),
-        ("alpha_K", c_double, "MG Kineticity"),
+        ("alpha_K_parametrization", c_int, "Parametrization for MG kineticity"),
+        ("alpha_K_0", c_double, "MG Kineticity"),
         ("log_a", c_double*alpha_B_len, "Interpolators for alpha_B function"),
         ("alpha_B", c_double*alpha_B_len, "Interpolators for alpha_B function"),
         ("mu", c_double*alpha_B_len, "Interpolators for mu and Sigma functions"),
@@ -642,7 +643,8 @@ class CAMBparams(F2003Class):
         mu0=0,
         Sigma0=0,
         use_cs2=False,
-        alpha_K=0
+        alpha_K_parametrization=0,
+        alpha_K_0=1
         # JVR MOD END
     ):
         r"""
@@ -726,7 +728,8 @@ class CAMBparams(F2003Class):
                 self.Sigma0 = Sigma0
         else:
             self.use_cs2 = True
-            self.alpha_K = alpha_K
+            self.alpha_K_parametrization = alpha_K_parametrization
+            self.alpha_K_0 = alpha_K_0
             self.use_mg = True
         # JVR MOD END
 

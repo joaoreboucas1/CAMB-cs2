@@ -3,6 +3,6 @@
         "ms-python.python",
         "ms-python.debugpy",
         "charliermarsh.ruff",
-        "fortran-lang.linter-gfortran"
+        // "fortran-lang.linter-gfortran"
     ]
 }
