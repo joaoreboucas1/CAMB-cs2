@@ -348,6 +348,7 @@ class CAMBparams(F2003Class):
         ("alpha_K_0", c_double, "MG Kineticity"),
         ("log_a", c_double*alpha_B_len, "Interpolators for alpha_B function"),
         ("alpha_B", c_double*alpha_B_len, "Interpolators for alpha_B function"),
+        ("alpha_K", c_double*alpha_B_len, "Interpolators for alpha_K function"),
         ("mu", c_double*alpha_B_len, "Interpolators for mu and Sigma functions"),
         # JVR MOD END
         ("InitPower", AllocatableObject(InitialPower)),
