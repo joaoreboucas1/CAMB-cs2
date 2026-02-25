@@ -50,6 +50,77 @@
 
     end subroutine TDarkEnergyPPF_SelfPointer
 
+    function get_alpha_K(a, State, alpha_B, DE) result(alpha_K)
+        use results
+        real(dl), intent(in) :: a
+        class(TCAMBdata), intent(in), target :: State
+        real(dl), intent(in) :: alpha_B
+        class(TDarkEnergyPPF), intent(inout) :: DE
+        real(dl) :: alpha_K
+        real(dl) :: grho_de, grho_tot, w_de
+
+        select type(State)
+        class is (CAMBData)
+            if (State%CP%alpha_K_parametrization .eq. 0) then
+                ! Constant
+                alpha_K = State%CP%alpha_K_0
+                return
+            else if (State%CP%alpha_K_parametrization .eq. 1) then
+                ! Omega_DE
+                call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
+                grho_tot = State%grho_no_de(a)/(a**2) + grho_de
+                alpha_K = State%CP%alpha_K_0*grho_de/grho_tot/State%Omega_DE
+            else if (State%CP%alpha_K_parametrization .eq. 2) then
+                ! Quintessence
+                call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
+                grho_tot = State%grho_no_de(a)/(a**2) + grho_de
+                alpha_K = (grho_de/grho_tot)*(1 + w_de)/DE%cs2_0
+            else if (State%CP%alpha_K_parametrization .eq. 3) then
+                ! Cubic Galileon
+                call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
+                grho_tot = State%grho_no_de(a)/(a**2) + grho_de
+                alpha_K = State%CP%alpha_K_0*(grho_de/grho_tot)/(grho_tot/State%grhocrit)**2.0 + 6.0*alpha_B
+            end if
+        end select
+    end function get_alpha_K
+
+    function dalpha_B_dloga(a, alpha_B, alpha_K, State, DE) result(dalpha_B)
+        use results
+        real(dl), intent(in) :: a, alpha_B, alpha_K
+        real(dl) :: dalpha_B
+        class(TDarkEnergyPPF), intent(inout) :: DE
+        class(TCAMBdata), intent(inout), target :: State
+        real(dl) :: w_de, grho_tot, grho_de, grho_no_de_t, gpres_no_de, w_tot, rho_plus_p_no_de_over_rhotot
+        real(dl) :: gpres_nu, grho_nu
+        integer :: nu_i
+
+        select type(State)
+        class is (CAMBData)
+        ! NOTE: in CAMB convention, grho = 8*pi*G*a^2*rho
+        call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
+        grho_no_de_t = State%grho_no_de(a)/a/a ! NOTE: grho_no_de returns 8*pi*G*a^4*rho
+        grho_tot = grho_no_de_t + grho_de
+
+        gpres_no_de = 0.0 ! NOTE: counts 8*pi*G*a^2*P, the pressure of photons, massless and massive nu
+        if (State%CP%Num_Nu_Massive > 0) then
+            do nu_i = 1, State%CP%nu_mass_eigenstates
+                call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
+                gpres_no_de = gpres_no_de + gpres_nu
+            end do
+        end if
+
+        gpres_no_de = gpres_no_de + (State%grhog + State%grhornomass)/3.0_dl/a**2
+
+        w_tot = (gpres_no_de + w_de*grho_de)/grho_tot
+
+        rho_plus_p_no_de_over_rhotot = (grho_no_de_t + gpres_no_de)/grho_tot
+
+        dalpha_B = DE%cs2_0*(alpha_K + 1.5_dl*alpha_B**(2)) \
+                    + (alpha_B - 2.0_dl)*(1.5_dl*(1.0_dl + w_tot) + 0.5_dl*alpha_B)\
+                    + 3.0_dl*rho_plus_p_no_de_over_rhotot
+        end select
+    end function dalpha_B_dloga
+
     subroutine TDarkEnergyPPF_Init(this, State)
     use classes
     use results
@@ -74,66 +145,38 @@
     !     call GlobalError('DarkEnergyPPF does not support varying sound speed',error_unsupported_params)
     ! JVR MOD END
 
-    ! JVR MOD BEGIN: populating array of alpha_B and log_a
+    ! JVR MOD BEGIN: populating array of alpha_B, alpha_K and log_a
     select type(State)
     class is (CAMBData)
         if (State%CP%use_cs2) then
+            State%CP%log_a(1)   = log(a_ini)
             State%CP%alpha_B(1) = alpha_B_ini
-            State%CP%log_a(1) = log(a_ini)
-            alpha_K = State%CP%alpha_K_0
-            if (State%CP%alpha_K_parametrization .eq. 1) then
-                call this%BackgroundDensityAndPressure(state%grhov, a_ini, grho_de)
-                grho_tot = State%grho_no_de(a_ini)/(a_ini**2) + grho_de
-                alpha_K = alpha_K*grho_de/grho_tot/State%Omega_DE
-            end if
-            State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
-                             / (2.0_dl*this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(1)**(2)))
+            State%CP%alpha_K(1) = get_alpha_K(a_ini, State, alpha_B_ini, this)
+            State%CP%mu(1)      = 1.0_dl + State%CP%alpha_B(1)**(2) \
+                             / (2.0_dl*this%cs2_0*(State%CP%alpha_K(1) + 1.5_dl*State%CP%alpha_B(1)**(2)))
             dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
             do i = 1, alpha_B_len-1
-                if (State%CP%alpha_B(i)**2 > 1e6*alpha_K) then
+                if (State%CP%alpha_B(i)**2 > 1e6*abs(State%CP%alpha_K(i))) then
                     ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
                     ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
                     ! In practice, I enforce this with the threshold defined above in the `if` statement
                     ! And then I just fill the rest of the arrays with the last values and break out of the integration loop
                     do j = i, alpha_B_len
-                        State%CP%log_a(j) = State%CP%log_a(1) + (j-1)*dlog_a
+                        State%CP%log_a(j)   = State%CP%log_a(1) + (j-1)*dlog_a
                         State%CP%alpha_B(j) = State%CP%alpha_B(i)
-                        State%CP%mu(j) = State%CP%mu(i)
+                        State%CP%alpha_K(j) = get_alpha_K(exp(State%CP%log_a(j)), State, State%CP%alpha_B(i), this)
+                        State%CP%mu(j)      = State%CP%mu(i)
                     end do
                     exit
                 end if
                 a = exp(State%CP%log_a(i))
-                ! NOTE: in CAMB convention, grho = 8*pi*G*a^2*rho
-                call this%BackgroundDensityAndPressure(State%grhov, a, grho_de)
-                w_de = this%w_lam + this%wa*(1.0_dl - a)
-                grho_no_de_t = State%grho_no_de(a)/a/a ! NOTE: grho_no_de returns 8*pi*G*a^4*rho
-                grho_tot = grho_no_de_t + grho_de
 
-                gpres_no_de = 0.0 ! NOTE: counts 8*pi*G*a^2*P, the pressure of photons, massless and massive nu
-                if (State%CP%Num_Nu_Massive > 0) then
-                    do nu_i = 1, State%CP%nu_mass_eigenstates
-                        call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
-                        gpres_no_de = gpres_no_de + gpres_nu
-                    end do
-                end if
-
-                gpres_no_de = gpres_no_de + (State%grhog + State%grhornomass)/3.0_dl/a**2
-
-                w_tot = (gpres_no_de + w_de*grho_de)/grho_tot
-
-                last_term = (grho_no_de_t + gpres_no_de)/grho_tot
-                alpha_K = State%CP%alpha_K_0
-                if (State%CP%alpha_K_parametrization .eq. 1) then
-                    alpha_K = alpha_K*grho_de/grho_tot/State%Omega_DE
-                end if
-
-                dalpha_B = this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(i)**(2)) \
-                           + (State%CP%alpha_B(i) - 2.0_dl)*(1.5_dl*(1.0_dl + w_tot) + 0.5_dl*State%CP%alpha_B(i))\
-                           + 3.0_dl*last_term
+                dalpha_B = dalpha_B_dloga(a, State%CP%alpha_B(i), State%CP%alpha_K(i), State, this)
                 State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
                 State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
+                State%CP%alpha_K(i+1) = get_alpha_K(a, State, State%CP%alpha_B(i+1), this)
                 State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
-                             / (2.0_dl*this%cs2_0*(alpha_K + 1.5_dl*State%CP%alpha_B(i+1)**(2)))
+                             / (2.0_dl*this%cs2_0*(State%CP%alpha_K(i+1) + 1.5_dl*State%CP%alpha_B(i+1)**(2)))
             end do
         end if
     end select
