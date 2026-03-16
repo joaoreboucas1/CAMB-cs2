@@ -74,12 +74,15 @@
                 ! Quintessence
                 call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
                 grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = (grho_de/grho_tot)*(1 + w_de)/DE%cs2_0
+                alpha_K = State%CP%alpha_K_0*(grho_de/grho_tot)*(1 + w_de)/DE%cs2_0
             else if (State%CP%alpha_K_parametrization .eq. 3) then
-                ! Cubic Galileon
+                ! Cubic Galileon Self-Accelerating
                 call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
                 grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = State%CP%alpha_K_0*(grho_de/grho_tot)/(grho_tot/State%grhocrit)**2.0 + 6.0*alpha_B
+                alpha_K = State%CP%alpha_K_0*6.0*(grho_de/grho_tot)/(grho_tot/State%grhocrit)**2.0
+            else if (State%CP%alpha_K_parametrization .eq. 4) then
+                ! Proportional to \alpha_B
+                alpha_K = State%CP%alpha_K_0*3.0*alpha_B
             end if
         end select
     end function get_alpha_K
@@ -90,7 +93,7 @@
         real(dl) :: dalpha_B
         class(TDarkEnergyPPF), intent(inout) :: DE
         class(TCAMBdata), intent(inout), target :: State
-        real(dl) :: w_de, grho_tot, grho_de, grho_no_de_t, gpres_no_de, w_tot, rho_plus_p_no_de_over_rhotot
+        real(dl) :: w_de, grho_tot, grho_de, gpres_tot, w_tot, d_lnH_d_lna
         real(dl) :: gpres_nu, grho_nu
         integer :: nu_i
 
@@ -98,26 +101,28 @@
         class is (CAMBData)
         ! NOTE: in CAMB convention, grho = 8*pi*G*a^2*rho
         call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
-        grho_no_de_t = State%grho_no_de(a)/a/a ! NOTE: grho_no_de returns 8*pi*G*a^4*rho
-        grho_tot = grho_no_de_t + grho_de
+        grho_tot = State%grho_no_de(a)/a/a + grho_de
 
-        gpres_no_de = 0.0 ! NOTE: counts 8*pi*G*a^2*P, the pressure of photons, massless and massive nu
+        gpres_tot = 0.0
+
         if (State%CP%Num_Nu_Massive > 0) then
             do nu_i = 1, State%CP%nu_mass_eigenstates
                 call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
-                gpres_no_de = gpres_no_de + gpres_nu
+                gpres_tot = gpres_tot + gpres_nu
             end do
         end if
 
-        gpres_no_de = gpres_no_de + (State%grhog + State%grhornomass)/3.0_dl/a**2
+        gpres_tot = gpres_tot + (State%grhog + State%grhornomass)/3.0_dl/a**2
+        gpres_tot = gpres_tot + w_de*grho_de
 
-        w_tot = (gpres_no_de + w_de*grho_de)/grho_tot
+        w_tot = (gpres_tot)/grho_tot
+        d_lnH_d_lna = -1.5*(1 + w_tot)
 
-        rho_plus_p_no_de_over_rhotot = (grho_no_de_t + gpres_no_de)/grho_tot
-
-        dalpha_B = DE%cs2_0*(alpha_K + 1.5_dl*alpha_B**(2)) \
-                    + (alpha_B - 2.0_dl)*(1.5_dl*(1.0_dl + w_tot) + 0.5_dl*alpha_B)\
-                    + 3.0_dl*rho_plus_p_no_de_over_rhotot
+        ! cs2*(alpha_K + 1.5*alpha_B**2) + 0.5*alpha_B**2 - alpha_B*(d_lnH_d_lna + 1) - 3*(1 + wde)*rhode/rhotot
+        dalpha_B =  DE%cs2_0*(alpha_K + 1.5_dl*alpha_B**(2)) \
+                    + 0.5*alpha_B**2 \
+                    - alpha_B*(d_lnH_d_lna + 1.0) \
+                    - 3*(1 + w_de)*grho_de/grho_tot
         end select
     end function dalpha_B_dloga
 
@@ -129,7 +134,7 @@
     class(TCAMBdata), intent(inout), target :: State
     ! JVR MOD BEGIN: adding variables for integrating alpha_B
     real(dl), parameter :: a_ini = 1e-5, alpha_B_ini = 0d0
-    real(dl) :: a, dalpha_B, dlog_a, w_tot, last_term, w_de, alpha_K
+    real(dl) :: a, dalpha_B, dlog_a, w_tot, last_term, w_de, alpha_K, D_kin
     real(dl) :: grho_de, grho_no_de_t, grho_tot, gpres_no_de, grho_nu, gpres_nu
     integer :: i, j, nu_i
     ! JVR MOD END
@@ -152,11 +157,18 @@
             State%CP%log_a(1)   = log(a_ini)
             State%CP%alpha_B(1) = alpha_B_ini
             State%CP%alpha_K(1) = get_alpha_K(a_ini, State, alpha_B_ini, this)
-            State%CP%mu(1)      = 1.0_dl + State%CP%alpha_B(1)**(2) \
-                             / (2.0_dl*this%cs2_0*(State%CP%alpha_K(1) + 1.5_dl*State%CP%alpha_B(1)**(2)))
+            D_kin = State%CP%alpha_K(1) + 1.5_dl*State%CP%alpha_B(1)**2
+            if (State%CP%alpha_B(1) .eq. 0) then
+                State%CP%mu(1) = 1.0_dl
+            else if (D_kin .eq. 0) then
+                State%CP%mu(1) = 1.0e20 ! Some absurd value to throw off anything
+            else
+                State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
+                                          / (2.0_dl*this%cs2_0*D_kin)
+            end if
             dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
             do i = 1, alpha_B_len-1
-                if (State%CP%alpha_B(i)**2 > 1e6*abs(State%CP%alpha_K(i))) then
+                if (abs(State%CP%alpha_B(i)) > 1e6) then
                     ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
                     ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
                     ! In practice, I enforce this with the threshold defined above in the `if` statement
@@ -175,8 +187,15 @@
                 State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
                 State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
                 State%CP%alpha_K(i+1) = get_alpha_K(a, State, State%CP%alpha_B(i+1), this)
-                State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
-                             / (2.0_dl*this%cs2_0*(State%CP%alpha_K(i+1) + 1.5_dl*State%CP%alpha_B(i+1)**(2)))
+                D_kin = State%CP%alpha_K(i+1) + 1.5_dl*State%CP%alpha_B(i+1)**2
+                if (State%CP%alpha_B(i+1) .eq. 0) then
+                    State%CP%mu(i+1) = 1.0_dl
+                else if (D_kin .eq. 0) then
+                    State%CP%mu(i+1) = 1.0e20 ! Some absurd value to throw off anything
+                else
+                    State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
+                                            / (2.0_dl*this%cs2_0*D_kin)
+                end if
             end do
         end if
     end select
