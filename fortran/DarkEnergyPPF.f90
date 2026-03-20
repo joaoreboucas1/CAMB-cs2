@@ -88,38 +88,40 @@
     end function get_alpha_K
 
     function dalpha_B_dloga(a, alpha_B, alpha_K, State, DE) result(dalpha_B)
-        use results
         real(dl), intent(in) :: a, alpha_B, alpha_K
         real(dl) :: dalpha_B
-        class(TDarkEnergyPPF), intent(inout) :: DE
+        class(TDarkEnergyFluid), intent(inout) :: DE
         class(TCAMBdata), intent(inout), target :: State
         real(dl) :: w_de, grho_tot, grho_de, gpres_tot, w_tot, d_lnH_d_lna
-        real(dl) :: gpres_nu, grho_nu
+        real(dl) :: gpres_nu, grho_nu, grhormass_t
         integer :: nu_i
 
         select type(State)
         class is (CAMBData)
         ! NOTE: in CAMB convention, grho = 8*pi*G*a^2*rho
         call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
-        grho_tot = State%grho_no_de(a)/a/a + grho_de
+        grho_tot = State%grho_no_de(a)/a**2 + grho_de
 
         gpres_tot = 0.0
 
         if (State%CP%Num_Nu_Massive > 0) then
             do nu_i = 1, State%CP%nu_mass_eigenstates
+                grhormass_t=State%grhormass(nu_i)/a**2
+                ! NOTE: ThermalNuBack%rho_P returns ratios of rho and P with respect to the massless nu case 
                 call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
-                gpres_tot = gpres_tot + gpres_nu
+                gpres_tot = gpres_tot + gpres_nu*grhormass_t
             end do
         end if
 
         gpres_tot = gpres_tot + (State%grhog + State%grhornomass)/3.0_dl/a**2
         gpres_tot = gpres_tot + w_de*grho_de
 
-        w_tot = (gpres_tot)/grho_tot
+        w_tot = gpres_tot/grho_tot
+        ! print *, "At a = ", a, "w_tot = ", w_tot, "\n"
         d_lnH_d_lna = -1.5*(1 + w_tot)
 
         ! cs2*(alpha_K + 1.5*alpha_B**2) + 0.5*alpha_B**2 - alpha_B*(d_lnH_d_lna + 1) - 3*(1 + wde)*rhode/rhotot
-        dalpha_B =  DE%cs2_0*(alpha_K + 1.5_dl*alpha_B**(2)) \
+        dalpha_B =  DE%cs2_0*(alpha_K + 1.5_dl*alpha_B**2) \
                     + 0.5*alpha_B**2 \
                     - alpha_B*(d_lnH_d_lna + 1.0) \
                     - 3*(1 + w_de)*grho_de/grho_tot
