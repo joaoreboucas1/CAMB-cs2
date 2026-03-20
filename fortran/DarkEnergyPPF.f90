@@ -88,9 +88,10 @@
     end function get_alpha_K
 
     function dalpha_B_dloga(a, alpha_B, alpha_K, State, DE) result(dalpha_B)
+        use results
         real(dl), intent(in) :: a, alpha_B, alpha_K
         real(dl) :: dalpha_B
-        class(TDarkEnergyFluid), intent(inout) :: DE
+        class(TDarkEnergyPPF), intent(inout) :: DE
         class(TCAMBdata), intent(inout), target :: State
         real(dl) :: w_de, grho_tot, grho_de, gpres_tot, w_tot, d_lnH_d_lna
         real(dl) :: gpres_nu, grho_nu, grhormass_t
