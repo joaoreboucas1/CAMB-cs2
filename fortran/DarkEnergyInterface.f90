@@ -28,6 +28,9 @@
         real(dl) :: w_lam = -1_dl ! p/rho for the dark energy (an effective value, used e.g. for halofit)
         real(dl) :: wa = 0._dl ! may not be used, just for compatibility with e.g. halofit
         real(dl) :: cs2_0 = 1_dl ! rest-frame sound speed, though may not be used
+        ! JVR MOD BEGIN: adding support for dynamical sound speed
+        real(dl) :: cs2_a = 0._dl ! derivative of cs2(a) (such that cs2 = cs2_0 + cs2_a*(1-a))
+        ! JVR MOD END
         logical :: use_tabulated_w = .false.  ! Use interpolated table; note this is quite slow.
         logical :: no_perturbations = .false. ! Don't change this, no perturbations is unphysical
         ! Interpolations if use_tabulated_w=.true.
@@ -40,6 +43,7 @@
     procedure :: w_de => TDarkEnergyEqnOfState_w_de
     procedure :: grho_de => TDarkEnergyEqnOfState_grho_de
     procedure :: Effective_w_wa => TDarkEnergyEqnOfState_Effective_w_wa
+    procedure :: get_cs2_at_a => TDarkEnergyEqnOfState_get_cs2_at_a
 #if defined(__GFORTRAN__) && (( __GNUC__ < 15 ) || ( __GNUC__ == 15 && __GNUC_MINOR__ < 2 ))
     final :: TDarkEnergyEqnOfState_Free ! safer for gcc mem-leak bug
 #endif
@@ -129,6 +133,14 @@
 
     end subroutine PerturbedStressEnergy
 
+    ! JVR MOD BEGIN: adding dynamical sound speed support
+    function TDarkEnergyEqnOfState_get_cs2_at_a(this, a) result(cs2)
+        class(TDarkEnergyEqnOfState), intent(in) :: this
+        real(dl), intent(in) :: a
+        real(dl) :: cs2
+        cs2 = this%cs2_0 + this%cs2_a*(1.0_dl - a)
+    end function TDarkEnergyEqnOfState_get_cs2_at_a
+    ! JVR MOD END
 
     function diff_rhopi_Add_Term(this, dgrhoe, dgqe,grho, gpres, w, grhok, adotoa, &
         Kf1, k, grhov_t, z, k2, yprime, y, w_ix) result(ppiedot)

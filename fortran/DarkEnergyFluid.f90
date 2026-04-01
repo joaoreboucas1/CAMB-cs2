@@ -95,7 +95,7 @@
                 ! Quintessence
                 call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
                 grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = State%CP%alpha_K_0*(grho_de/grho_tot)*(1 + w_de)/DE%cs2_0
+                alpha_K = State%CP%alpha_K_0*(grho_de/grho_tot)*(1 + w_de)/DE%get_cs2_at_a(a)
             else if (State%CP%alpha_K_parametrization .eq. 3) then
                 ! Cubic Galileon Self-Accelerating
                 call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
@@ -128,7 +128,7 @@
         if (State%CP%Num_Nu_Massive > 0) then
             do nu_i = 1, State%CP%nu_mass_eigenstates
                 grhormass_t=State%grhormass(nu_i)/a**2
-                ! NOTE: ThermalNuBack%rho_P returns ratios of rho and P with respect to the massless nu case 
+                ! NOTE: ThermalNuBack%rho_P returns ratios of rho and P with respect to the massless nu case
                 call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
                 gpres_tot = gpres_tot + gpres_nu*grhormass_t
             end do
@@ -142,7 +142,7 @@
         d_lnH_d_lna = -1.5*(1 + w_tot)
 
         ! cs2*(alpha_K + 1.5*alpha_B**2) + 0.5*alpha_B**2 - alpha_B*(d_lnH_d_lna + 1) - 3*(1 + wde)*rhode/rhotot
-        dalpha_B =  DE%cs2_0*(alpha_K + 1.5_dl*alpha_B**2) \
+        dalpha_B =  DE%get_cs2_at_a(a)*(alpha_K + 1.5_dl*alpha_B**2) \
                     + 0.5*alpha_B**2 \
                     - alpha_B*(d_lnH_d_lna + 1.0) \
                     - 3*(1 + w_de)*grho_de/grho_tot
@@ -190,7 +190,7 @@
                 State%CP%mu(1) = 1.0e20 ! Some absurd value to throw off anything
             else
                 State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
-                                          / (2.0_dl*this%cs2_0*D_kin)
+                                          / (2.0_dl*this%get_cs2_at_a(a)*D_kin)
             end if
             dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
             do i = 1, alpha_B_len-1
@@ -220,7 +220,7 @@
                     State%CP%mu(i+1) = 1.0e20 ! Some absurd value to throw off anything
                 else
                     State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
-                                            / (2.0_dl*this%cs2_0*D_kin)
+                                            / (2.0_dl*this%get_cs2_at_a(a)*D_kin)
                 end if
             end do
         end if
@@ -260,7 +260,7 @@
     Hv3_over_k =  3*adotoa* y(w_ix + 1) / k
     ca2 = w
     !density perturbation
-    ayprime(w_ix) = -3 * adotoa * (this%cs2_0 - w) *  (y(w_ix) + (1 + w) * Hv3_over_k) &
+    ayprime(w_ix) = -3 * adotoa * (this%get_cs2_at_a(a) - w) *  (y(w_ix) + (1 + w) * Hv3_over_k) &
         -  (1 + w) * k * y(w_ix + 1) - (1 + w) * k * z
     if (this%use_tabulated_w) then
         !account for derivatives of w
@@ -273,8 +273,8 @@
     end if
     !velocity
     if (abs(w+1) > 1e-6) then
-        ayprime(w_ix + 1) = -adotoa * (1 - 3 * this%cs2_0) * y(w_ix + 1) + &
-            k * this%cs2_0 * y(w_ix) / (1 + w)
+        ayprime(w_ix + 1) = -adotoa * (1 - 3 * this%get_cs2_at_a(a)) * y(w_ix + 1) + &
+            k * this%get_cs2_at_a(a) * y(w_ix) / (1 + w)
     else
         ayprime(w_ix + 1) = 0
     end if
