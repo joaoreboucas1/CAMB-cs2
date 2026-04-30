@@ -100,7 +100,7 @@
                 ! Cubic Galileon Self-Accelerating
                 call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
                 grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = State%CP%alpha_K_0*6.0*State%Omega_de/(grho_tot/State%grhocrit)**2.0
+                alpha_K = State%CP%alpha_K_0*6.0*State%Omega_de/(grho_tot/State%grhocrit/a**2)**2.0
             else if (State%CP%alpha_K_parametrization .eq. 4) then
                 ! Proportional to \alpha_B
                 alpha_K = State%CP%alpha_K_0*3.0*alpha_B
