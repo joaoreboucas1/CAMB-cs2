@@ -1,5 +1,6 @@
     module DarkEnergyPPF
     use DarkEnergyInterface
+    use DarkEnergyFluid, only: MG_FillTables ! JVR MOD: shared MG background tables
     use classes
     implicit none
 
@@ -50,97 +51,12 @@
 
     end subroutine TDarkEnergyPPF_SelfPointer
 
-    function get_alpha_K(a, State, alpha_B, DE) result(alpha_K)
-        use results
-        real(dl), intent(in) :: a
-        class(TCAMBdata), intent(in), target :: State
-        real(dl), intent(in) :: alpha_B
-        class(TDarkEnergyPPF), intent(inout) :: DE
-        real(dl) :: alpha_K
-        real(dl) :: grho_de, grho_tot, w_de
-
-        select type(State)
-        class is (CAMBData)
-            if (State%CP%alpha_K_parametrization .eq. 0) then
-                ! Constant
-                alpha_K = State%CP%alpha_K_0
-                return
-            else if (State%CP%alpha_K_parametrization .eq. 1) then
-                ! Omega_DE
-                call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
-                grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = State%CP%alpha_K_0*grho_de/grho_tot/State%Omega_DE
-            else if (State%CP%alpha_K_parametrization .eq. 2) then
-                ! Quintessence
-                call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
-                grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = State%CP%alpha_K_0*(grho_de/grho_tot)*(1 + w_de)/DE%get_cs2_at_a(a)
-            else if (State%CP%alpha_K_parametrization .eq. 3) then
-                ! Cubic Galileon Self-Accelerating
-                call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de)
-                grho_tot = State%grho_no_de(a)/(a**2) + grho_de
-                alpha_K = State%CP%alpha_K_0*6.0*State%Omega_de/(grho_tot/State%grhocrit/a**2)**2.0
-            else if (State%CP%alpha_K_parametrization .eq. 4) then
-                ! Proportional to \alpha_B
-                alpha_K = State%CP%alpha_K_0*3.0*alpha_B
-            end if
-        end select
-    end function get_alpha_K
-
-    function dalpha_B_dloga(a, alpha_B, alpha_K, State, DE) result(dalpha_B)
-        use results
-        real(dl), intent(in) :: a, alpha_B, alpha_K
-        real(dl) :: dalpha_B
-        class(TDarkEnergyPPF), intent(inout) :: DE
-        class(TCAMBdata), intent(inout), target :: State
-        real(dl) :: w_de, grho_tot, grho_de, gpres_tot, w_tot, d_lnH_d_lna
-        real(dl) :: gpres_nu, grho_nu, grhormass_t
-        integer :: nu_i
-
-        select type(State)
-        class is (CAMBData)
-        ! NOTE: in CAMB convention, grho = 8*pi*G*a^2*rho
-        call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
-        grho_tot = State%grho_no_de(a)/a**2 + grho_de
-
-        gpres_tot = 0.0
-
-        if (State%CP%Num_Nu_Massive > 0) then
-            do nu_i = 1, State%CP%nu_mass_eigenstates
-                grhormass_t=State%grhormass(nu_i)/a**2
-                ! NOTE: ThermalNuBack%rho_P returns ratios of rho and P with respect to the massless nu case
-                call ThermalNuBack%rho_P(a*State%nu_masses(nu_i), grho_nu, gpres_nu)
-                gpres_tot = gpres_tot + gpres_nu*grhormass_t
-            end do
-        end if
-
-        gpres_tot = gpres_tot + (State%grhog + State%grhornomass)/3.0_dl/a**2
-        gpres_tot = gpres_tot + w_de*grho_de
-
-        w_tot = gpres_tot/grho_tot
-        ! print *, "At a = ", a, "w_tot = ", w_tot, "\n"
-        d_lnH_d_lna = -1.5*(1 + w_tot)
-
-        ! cs2*(alpha_K + 1.5*alpha_B**2) + 0.5*alpha_B**2 - alpha_B*(d_lnH_d_lna + 1) - 3*(1 + wde)*rhode/rhotot
-        dalpha_B =  DE%get_cs2_at_a(a)*(alpha_K + 1.5_dl*alpha_B**2) \
-                    + 0.5*alpha_B**2 \
-                    - alpha_B*(d_lnH_d_lna + 1.0) \
-                    - 3*(1 + w_de)*grho_de/grho_tot
-        end select
-    end function dalpha_B_dloga
-
     subroutine TDarkEnergyPPF_Init(this, State)
     use classes
     use results
     use config
     class(TDarkEnergyPPF), intent(inout) :: this
     class(TCAMBdata), intent(inout), target :: State
-    ! JVR MOD BEGIN: adding variables for integrating alpha_B
-    real(dl), parameter :: a_ini = 1e-5, alpha_B_ini = 0d0
-    real(dl) :: a, dalpha_B, dlog_a, w_tot, last_term, w_de, alpha_K, D_kin
-    real(dl) :: grho_de, grho_no_de_t, grho_tot, gpres_no_de, grho_nu, gpres_nu
-    integer :: i, j, nu_i
-    ! JVR MOD END
 
     call this%TDarkEnergyEqnOfState%Init(State)
     if (this%is_cosmological_constant) then
@@ -154,54 +70,7 @@
     ! JVR MOD END
 
     ! JVR MOD BEGIN: populating array of alpha_B, alpha_K and log_a
-    select type(State)
-    class is (CAMBData)
-        if (State%CP%use_cs2) then
-            State%CP%log_a(1)   = log(a_ini)
-            State%CP%alpha_B(1) = alpha_B_ini
-            State%CP%alpha_K(1) = get_alpha_K(a_ini, State, alpha_B_ini, this)
-            D_kin = State%CP%alpha_K(1) + 1.5_dl*State%CP%alpha_B(1)**2
-            if (State%CP%alpha_B(1) .eq. 0) then
-                State%CP%mu(1) = 1.0_dl
-            else if (D_kin .eq. 0) then
-                State%CP%mu(1) = 1.0e20 ! Some absurd value to throw off anything
-            else
-                State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
-                                          / (2.0_dl*this%get_cs2_at_a(a)*D_kin)
-            end if
-            dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
-            do i = 1, alpha_B_len-1
-                if (abs(State%CP%alpha_B(i)) > 1e6) then
-                    ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
-                    ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
-                    ! In practice, I enforce this with the threshold defined above in the `if` statement
-                    ! And then I just fill the rest of the arrays with the last values and break out of the integration loop
-                    do j = i, alpha_B_len
-                        State%CP%log_a(j)   = State%CP%log_a(1) + (j-1)*dlog_a
-                        State%CP%alpha_B(j) = State%CP%alpha_B(i)
-                        State%CP%alpha_K(j) = get_alpha_K(exp(State%CP%log_a(j)), State, State%CP%alpha_B(i), this)
-                        State%CP%mu(j)      = State%CP%mu(i)
-                    end do
-                    exit
-                end if
-                a = exp(State%CP%log_a(i))
-
-                dalpha_B = dalpha_B_dloga(a, State%CP%alpha_B(i), State%CP%alpha_K(i), State, this)
-                State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
-                State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
-                State%CP%alpha_K(i+1) = get_alpha_K(a, State, State%CP%alpha_B(i+1), this)
-                D_kin = State%CP%alpha_K(i+1) + 1.5_dl*State%CP%alpha_B(i+1)**2
-                if (State%CP%alpha_B(i+1) .eq. 0) then
-                    State%CP%mu(i+1) = 1.0_dl
-                else if (D_kin .eq. 0) then
-                    State%CP%mu(i+1) = 1.0e20 ! Some absurd value to throw off anything
-                else
-                    State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
-                                            / (2.0_dl*this%get_cs2_at_a(a)*D_kin)
-                end if
-            end do
-        end if
-    end select
+    call MG_FillTables(this, State)
     ! JVR MOD END
 
     end subroutine TDarkEnergyPPF_Init

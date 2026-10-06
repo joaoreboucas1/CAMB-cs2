@@ -76,7 +76,7 @@
         real(dl), intent(in) :: a
         class(TCAMBdata), intent(in), target :: State
         real(dl), intent(in) :: alpha_B
-        class(TDarkEnergyFluid), intent(inout) :: DE
+        class(TDarkEnergyEqnOfState), intent(inout) :: DE
         real(dl) :: alpha_K
         real(dl) :: grho_de, grho_tot, w_de
 
@@ -108,17 +108,15 @@
         end select
     end function get_alpha_K
 
-    function dalpha_B_dloga(a, alpha_B, alpha_K, State, DE) result(dalpha_B)
-        real(dl), intent(in) :: a, alpha_B, alpha_K
-        real(dl) :: dalpha_B
-        class(TDarkEnergyFluid), intent(inout) :: DE
-        class(TCAMBdata), intent(inout), target :: State
-        real(dl) :: w_de, grho_tot, grho_de, gpres_tot, w_tot, d_lnH_d_lna
+    subroutine MG_grho_gpres_tot(a, State, DE, grho_tot, gpres_tot, grho_de, w_de)
+        ! Total 8*pi*G*a^2*rho and 8*pi*G*a^2*p, plus DE density and equation of state
+        real(dl), intent(in) :: a
+        class(CAMBdata), intent(in) :: State
+        class(TDarkEnergyEqnOfState), intent(inout) :: DE
+        real(dl), intent(out) :: grho_tot, gpres_tot, grho_de, w_de
         real(dl) :: gpres_nu, grho_nu, grhormass_t
         integer :: nu_i
 
-        select type(State)
-        class is (CAMBData)
         ! NOTE: in CAMB convention, grho = 8*pi*G*a^2*rho
         call DE%BackgroundDensityAndPressure(State%grhov, a, grho_de, w_de)
         grho_tot = State%grho_no_de(a)/a**2 + grho_de
@@ -136,6 +134,37 @@
 
         gpres_tot = gpres_tot + (State%grhog + State%grhornomass)/3.0_dl/a**2
         gpres_tot = gpres_tot + w_de*grho_de
+    end subroutine MG_grho_gpres_tot
+
+    function MG_mu_p(a, alpha_B, c_sN2, State, DE) result(mu_p)
+        ! mu_p from Cataneo+2024 eq. (D5) with alpha_M = 0, converted to CAMB units:
+        ! mu_p = 9/4*{ [2 c_sN2 + alpha_B(alpha_B-2)](1+w_tot) + 2 alpha_B a^2/grho_tot dP/dlna }, P = gpres_tot/a^2
+        real(dl), intent(in) :: a, alpha_B, c_sN2
+        class(CAMBdata), intent(in) :: State
+        class(TDarkEnergyEqnOfState), intent(inout) :: DE
+        real(dl) :: mu_p
+        real(dl), parameter :: h = 1e-4_dl
+        real(dl) :: grho_tot, gpres_tot, grho_de, w_de, gpres_plus, gpres_minus, dP_dlna, dummy
+
+        call MG_grho_gpres_tot(a, State, DE, grho_tot, gpres_tot, grho_de, w_de)
+        call MG_grho_gpres_tot(a*exp(h), State, DE, dummy, gpres_plus, grho_de, w_de)
+        call MG_grho_gpres_tot(a*exp(-h), State, DE, dummy, gpres_minus, grho_de, w_de)
+        dP_dlna = (gpres_plus/(a*exp(h))**2 - gpres_minus/(a*exp(-h))**2)/(2.0_dl*h)
+
+        mu_p = 2.25_dl*((2.0_dl*c_sN2 + alpha_B*(alpha_B - 2.0_dl))*(1.0_dl + gpres_tot/grho_tot) &
+                        + 2.0_dl*alpha_B*a**2*dP_dlna/grho_tot)
+    end function MG_mu_p
+
+    function dalpha_B_dloga(a, alpha_B, alpha_K, State, DE) result(dalpha_B)
+        real(dl), intent(in) :: a, alpha_B, alpha_K
+        real(dl) :: dalpha_B
+        class(TDarkEnergyEqnOfState), intent(inout) :: DE
+        class(TCAMBdata), intent(inout), target :: State
+        real(dl) :: w_de, grho_tot, grho_de, gpres_tot, w_tot, d_lnH_d_lna
+
+        select type(State)
+        class is (CAMBData)
+        call MG_grho_gpres_tot(a, State, DE, grho_tot, gpres_tot, grho_de, w_de)
 
         w_tot = gpres_tot/grho_tot
         ! print *, "At a = ", a, "w_tot = ", w_tot, "\n"
@@ -149,17 +178,87 @@
         end select
     end function dalpha_B_dloga
 
+    subroutine MG_FillTables(DE, State)
+    ! Populates the background tables of alpha_B, alpha_K, mu, c_sN2 and mu_p (shared by Fluid and PPF)
+    class(TDarkEnergyEqnOfState), intent(inout) :: DE
+    class(TCAMBdata), intent(inout), target :: State
+    real(dl), parameter :: a_ini = 1e-5, alpha_B_ini = 0d0
+    real(dl) :: a, dalpha_B, dlog_a, D_kin
+    integer :: i, j
+
+    ! JVR MOD BEGIN: populating array of alpha_B, alpha_K and log_a
+    select type(State)
+    class is (CAMBData)
+        if (State%CP%use_cs2) then
+            State%CP%log_a(1)   = log(a_ini)
+            State%CP%alpha_B(1) = alpha_B_ini
+            State%CP%alpha_K(1) = get_alpha_K(a_ini, State, alpha_B_ini, DE)
+            D_kin = State%CP%alpha_K(1) + 1.5_dl*State%CP%alpha_B(1)**2
+            if (State%CP%alpha_B(1) .eq. 0) then
+                State%CP%mu(1) = 1.0_dl
+            else if (D_kin .eq. 0) then
+                State%CP%mu(1) = 1.0e20 ! Some absurd value to throw off anything
+            else
+                State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
+                                          / (2.0_dl*DE%get_cs2_at_a(a)*D_kin)
+            end if
+            State%CP%c_sN2(1) = DE%get_cs2_at_a(a_ini)*D_kin
+            State%CP%mu_p(1)  = MG_mu_p(a_ini, State%CP%alpha_B(1), State%CP%c_sN2(1), State, DE)
+            dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
+            do i = 1, alpha_B_len-1
+                if (abs(State%CP%alpha_B(i)) > 1e6) then
+                    ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
+                    ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
+                    ! In practice, I enforce this with the threshold defined above in the `if` statement
+                    ! And then I just fill the rest of the arrays with the last values and break out of the integration loop
+                    do j = i, alpha_B_len
+                        State%CP%log_a(j)   = State%CP%log_a(1) + (j-1)*dlog_a
+                        State%CP%alpha_B(j) = State%CP%alpha_B(i)
+                        State%CP%alpha_K(j) = get_alpha_K(exp(State%CP%log_a(j)), State, State%CP%alpha_B(i), DE)
+                        State%CP%mu(j)      = State%CP%mu(i)
+                        a = exp(State%CP%log_a(j))
+                        State%CP%c_sN2(j)   = DE%get_cs2_at_a(a)*(State%CP%alpha_K(j) + 1.5_dl*State%CP%alpha_B(j)**2)
+                        State%CP%mu_p(j)    = MG_mu_p(a, State%CP%alpha_B(j), State%CP%c_sN2(j), State, DE)
+                    end do
+                    exit
+                end if
+                a = exp(State%CP%log_a(i))
+
+                dalpha_B = dalpha_B_dloga(a, State%CP%alpha_B(i), State%CP%alpha_K(i), State, DE)
+                State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
+                State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
+                State%CP%alpha_K(i+1) = get_alpha_K(a, State, State%CP%alpha_B(i+1), DE)
+                D_kin = State%CP%alpha_K(i+1) + 1.5_dl*State%CP%alpha_B(i+1)**2
+                if (State%CP%alpha_B(i+1) .eq. 0) then
+                    State%CP%mu(i+1) = 1.0_dl
+                else if (D_kin .eq. 0) then
+                    State%CP%mu(i+1) = 1.0e20 ! Some absurd value to throw off anything
+                else
+                    State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
+                                            / (2.0_dl*DE%get_cs2_at_a(a)*D_kin)
+                end if
+                State%CP%c_sN2(i+1) = DE%get_cs2_at_a(exp(State%CP%log_a(i+1)))*D_kin
+                State%CP%mu_p(i+1)  = MG_mu_p(exp(State%CP%log_a(i+1)), State%CP%alpha_B(i+1), &
+                                              State%CP%c_sN2(i+1), State, DE)
+            end do
+            ! JVR NOTE: if mu_p and c_sN2 have opposite signs, the denominator mu_p + (k/aH)^2 c_sN2
+            ! of Cataneo+2024 eq. (31a) vanishes at some k, so mu has a pole and the evolution fails
+            if (.not. State%CP%use_qsa .and. any(State%CP%mu_p*State%CP%c_sN2 < 0)) then
+                call GlobalError('Scale-dependent mu (use_qsa=False) has a pole: mu_p/c_sN2 < 0 ' // &
+                                 '(Cataneo+2024 eq. 31a). Use use_qsa=True or different MG parameters.', &
+                                 error_darkenergy)
+            end if
+        end if
+    end select
+    ! JVR MOD END
+
+    end subroutine MG_FillTables
+
     subroutine TDarkEnergyFluid_Init(this, State)
     use classes
     use results
     class(TDarkEnergyFluid), intent(inout) :: this
     class(TCAMBdata), intent(inout), target :: State
-    ! JVR MOD BEGIN: adding variables for integrating alpha_B
-    real(dl), parameter :: a_ini = 1e-5, alpha_B_ini = 0d0
-    real(dl) :: a, dalpha_B, dlog_a, w_tot, rho_plus_p_no_de_over_rhotot, w_de, D_kin
-    real(dl) :: grho_de, grho_no_de_t, grho_tot, gpres_no_de, grho_nu, gpres_nu
-    integer :: i, j, nu_i
-    ! JVR MOD END
 
     call this%TDarkEnergyEqnOfState%Init(State)
 
@@ -177,54 +276,7 @@
     end if
 
     ! JVR MOD BEGIN: populating array of alpha_B, alpha_K and log_a
-    select type(State)
-    class is (CAMBData)
-        if (State%CP%use_cs2) then
-            State%CP%log_a(1)   = log(a_ini)
-            State%CP%alpha_B(1) = alpha_B_ini
-            State%CP%alpha_K(1) = get_alpha_K(a_ini, State, alpha_B_ini, this)
-            D_kin = State%CP%alpha_K(1) + 1.5_dl*State%CP%alpha_B(1)**2
-            if (State%CP%alpha_B(1) .eq. 0) then
-                State%CP%mu(1) = 1.0_dl
-            else if (D_kin .eq. 0) then
-                State%CP%mu(1) = 1.0e20 ! Some absurd value to throw off anything
-            else
-                State%CP%mu(1) = 1.0_dl + State%CP%alpha_B(1)**(2) \
-                                          / (2.0_dl*this%get_cs2_at_a(a)*D_kin)
-            end if
-            dlog_a = -State%CP%log_a(1)/(alpha_B_len-1)
-            do i = 1, alpha_B_len-1
-                if (abs(State%CP%alpha_B(i)) > 1e6) then
-                    ! JVR NOTE: for many cases, \alpha_B just diverges (i.e. becomes too big and positive)
-                    ! This is not a problem since \mu has a well-defined limit when \alpha_B -> \inf
-                    ! In practice, I enforce this with the threshold defined above in the `if` statement
-                    ! And then I just fill the rest of the arrays with the last values and break out of the integration loop
-                    do j = i, alpha_B_len
-                        State%CP%log_a(j)   = State%CP%log_a(1) + (j-1)*dlog_a
-                        State%CP%alpha_B(j) = State%CP%alpha_B(i)
-                        State%CP%alpha_K(j) = get_alpha_K(exp(State%CP%log_a(j)), State, State%CP%alpha_B(i), this)
-                        State%CP%mu(j)      = State%CP%mu(i)
-                    end do
-                    exit
-                end if
-                a = exp(State%CP%log_a(i))
-
-                dalpha_B = dalpha_B_dloga(a, State%CP%alpha_B(i), State%CP%alpha_K(i), State, this)
-                State%CP%log_a(i+1) = State%CP%log_a(i) + dlog_a
-                State%CP%alpha_B(i+1) = State%CP%alpha_B(i) + dalpha_B*dlog_a
-                State%CP%alpha_K(i+1) = get_alpha_K(a, State, State%CP%alpha_B(i+1), this)
-                D_kin = State%CP%alpha_K(i+1) + 1.5_dl*State%CP%alpha_B(i+1)**2
-                if (State%CP%alpha_B(i+1) .eq. 0) then
-                    State%CP%mu(i+1) = 1.0_dl
-                else if (D_kin .eq. 0) then
-                    State%CP%mu(i+1) = 1.0e20 ! Some absurd value to throw off anything
-                else
-                    State%CP%mu(i+1) = 1.0_dl + State%CP%alpha_B(i+1)**(2) \
-                                            / (2.0_dl*this%get_cs2_at_a(a)*D_kin)
-                end if
-            end do
-        end if
-    end select
+    call MG_FillTables(this, State)
     ! JVR MOD END
 
     end subroutine TDarkEnergyFluid_Init

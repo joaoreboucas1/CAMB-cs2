@@ -2147,6 +2147,60 @@
     end subroutine outtransf
 
     ! JVR MOD BEGIN: adding the mu and Sigma functions and their time derivatives
+    subroutine MG_node_ratios(State, j, r1, mu_inf)
+    ! Ratios mu_p/c_sN2 and mu_inf = 1 + alpha_B^2/(2 c_sN2) at table node j
+    use results
+    use model
+    class(CAMBdata), intent(inout) :: State
+    integer, intent(in) :: j
+    real(dl), intent(out) :: r1, mu_inf
+
+    if (State%CP%c_sN2(j) == 0) then
+        r1 = 0.0_dl
+        if (State%CP%alpha_B(j) == 0) then
+            mu_inf = 1.0_dl
+        else
+            mu_inf = 1.0e20 ! Some absurd value to throw off anything, as in the QSA tables
+        end if
+    else
+        r1     = State%CP%mu_p(j)/State%CP%c_sN2(j)
+        mu_inf = 1.0_dl + State%CP%alpha_B(j)**2/(2.0_dl*State%CP%c_sN2(j))
+    end if
+    end subroutine MG_node_ratios
+
+    subroutine MG_interp_tables(State, log_a, r1, mu_inf, dr1, dmu_inf)
+    ! Linear interpolation in log a of r1 = mu_p/c_sN2 and mu_inf, plus their d/dlna.
+    ! JVR NOTE: the ratios are interpolated rather than alpha_B, c_sN2 and mu_p separately,
+    ! because the latter can grow by orders of magnitude within one table step (e.g. when alpha_B
+    ! blows up), making the interpolated mu nearly discontinuous, while the ratios stay smooth
+    use results
+    use model
+    class(CAMBdata), intent(inout) :: State
+    real(dl), intent(in) :: log_a
+    real(dl), intent(out) :: r1, mu_inf, dr1, dmu_inf
+    real(dl) :: t, dlog_a, r1_lo, r1_hi, mu_inf_lo, mu_inf_hi
+    integer :: i
+
+    if (log_a <= State%CP%log_a(1)) then
+        call MG_node_ratios(State, 1, r1, mu_inf)
+        dr1     = 0.0_dl
+        dmu_inf = 0.0_dl
+        return
+    end if
+    do i = 2, alpha_B_len
+        if (log_a <= State%CP%log_a(i) .or. i == alpha_B_len) exit
+    end do
+    call MG_node_ratios(State, i-1, r1_lo, mu_inf_lo)
+    call MG_node_ratios(State, i, r1_hi, mu_inf_hi)
+    dlog_a  = State%CP%log_a(i) - State%CP%log_a(i-1)
+    t       = min((log_a - State%CP%log_a(i-1))/dlog_a, 1.0_dl)
+    dr1     = (r1_hi - r1_lo)/dlog_a
+    dmu_inf = (mu_inf_hi - mu_inf_lo)/dlog_a
+    r1      = r1_lo + (r1_hi - r1_lo)*t
+    mu_inf  = mu_inf_lo + (mu_inf_hi - mu_inf_lo)*t
+
+    end subroutine MG_interp_tables
+
     function MG_mu(State,k,a,adotoa)
 	use constants
 	use results
@@ -2156,6 +2210,7 @@
     real(dl), intent(in) :: k, a, adotoa
 	real(dl) :: grhov_t, Omega_de, log_a, t, cs2, alpha_B
     real(dl) :: MG_mu
+    real(dl) :: r1, mu_inf, dr1, dmu_inf, x
     integer :: i
 
     select type(DE=>State%CP%DarkEnergy)
@@ -2173,6 +2228,12 @@
         Omega_de = grhov_t/(3.0_dl*adotoa**2)
 
         MG_mu = 1.d0 + CP%mu0 * Omega_de/State%Omega_de
+    else if (.not. State%CP%use_qsa) then
+        ! Scale-dependent mu from Cataneo+2024 eq. (31a) with alpha_M = alpha_T = 0, M_* = 1
+        ! Written as mu = (r1 + x mu_inf)/(r1 + x), with r1 = mu_p/c_sN2 and x = k^2/(aH)^2
+        call MG_interp_tables(State, log(a), r1, mu_inf, dr1, dmu_inf)
+        x = (k/adotoa)**2
+        MG_mu = (r1 + x*mu_inf)/(r1 + x)
     else
         log_a = log(a)
         if (log_a <= State%CP%log_a(1)) then
@@ -2203,6 +2264,7 @@
     real(dl), intent(in) :: k, a, adotoa, Hdot
     real(dl) MG_mu_dot
     real(dl) :: grhov_t, w_de, grhode_dot, Omega_de_dot, w0, wa, cs2, alpha_B, alpha_B_dot, log_a, t
+    real(dl) :: r1, mu_inf, dr1, dmu_inf, x, xdot, num, den, numdot, dendot
     integer :: i
 
     select type(DE=>State%CP%DarkEnergy)
@@ -2226,6 +2288,16 @@
                         3.d0 * (1.d0+w0) * adotoa + 3.d0 * wa * adotoa * (1.d0-a) )
 
         MG_mu_dot = CP%mu0*Omega_de_dot/State%Omega_de
+    else if (.not. State%CP%use_qsa) then
+        ! Time derivative of Cataneo+2024 eq. (31a); table slopes are d/dlna, converted with adotoa
+        call MG_interp_tables(State, log(a), r1, mu_inf, dr1, dmu_inf)
+        x = (k/adotoa)**2
+        xdot = -2.0_dl*x*Hdot/adotoa
+        num = r1 + x*mu_inf
+        den = r1 + x
+        numdot = adotoa*dr1 + xdot*mu_inf + x*adotoa*dmu_inf
+        dendot = adotoa*dr1 + xdot
+        MG_mu_dot = (numdot*den - num*dendot)/den**2
     else
         log_a = log(a)
         if (log_a <= State%CP%log_a(1)) then

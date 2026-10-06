@@ -158,6 +158,7 @@
         ! JVR MOD BEGIN: adding new flag and parameters for MG
         logical :: use_mg = .false.
         logical :: use_cs2 = .false.
+        logical :: use_qsa = .true.  ! if false, use scale-dependent mu from Cataneo+2024 eq. (31a)
         real(dl) :: mu0 = 0.0_dl
         real(dl) :: Sigma0 = 0.0_dl
         integer  :: alpha_K_parametrization = 0 ! 0 for constant, 1 for proportional to \Omega_DE(a), 2 for quint, 3 for cugal
@@ -166,6 +167,8 @@
         real(dl) :: alpha_B(alpha_B_len) = 0      ! Interpolator for alpha_B
         real(dl) :: alpha_K(alpha_B_len) = 0      ! Interpolator for alpha_K
         real(dl) :: mu(alpha_B_len)      = 0      ! Interpolator for mu and Sigma
+        real(dl) :: mu_p(alpha_B_len)    = 0      ! Interpolator for mu_p (Cataneo+2024 eq. D5)
+        real(dl) :: c_sN2(alpha_B_len)   = 0      ! Interpolator for c_sN^2 = cs2*D_kin
         ! JVR MOD END
 
         class(TInitialPower), allocatable :: InitPower

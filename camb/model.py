@@ -342,6 +342,7 @@ class CAMBparams(F2003Class):
         # JVR MOD BEGIN: adding flag and parameters for MG in Python interface
         ("use_mg", c_bool, "Flag for using modified gravity"),
         ("use_cs2", c_bool, "Flag for using MG-cs2 parametrization"),
+        ("use_qsa", c_bool, "Flag for using QSA mu; if False, use scale-dependent mu (Cataneo+2024 eq. 31a)"),
         ("mu0", c_double, "Parameter \\mu_0 for Sigma-mu parametrization"),
         ("Sigma0", c_double, "Parameter \\Sigma_0 for Sigma-mu parametrization"),
         ("alpha_K_parametrization", c_int, "Parametrization for MG kineticity"),
@@ -350,6 +351,8 @@ class CAMBparams(F2003Class):
         ("alpha_B", c_double*alpha_B_len, "Interpolators for alpha_B function"),
         ("alpha_K", c_double*alpha_B_len, "Interpolators for alpha_K function"),
         ("mu", c_double*alpha_B_len, "Interpolators for mu and Sigma functions"),
+        ("mu_p", c_double*alpha_B_len, "Interpolators for mu_p function"),
+        ("c_sN2", c_double*alpha_B_len, "Interpolators for c_sN^2 function"),
         # JVR MOD END
         ("InitPower", AllocatableObject(InitialPower)),
         ("Recomb", AllocatableObject(recomb.RecombinationModel)),
@@ -644,6 +647,7 @@ class CAMBparams(F2003Class):
         mu0=0,
         Sigma0=0,
         use_cs2=False,
+        use_qsa=True,
         alpha_K_parametrization=0,
         alpha_K_0=1
         # JVR MOD END
@@ -704,6 +708,7 @@ class CAMBparams(F2003Class):
          changed for each H0 because it depends explicitly on H0
         :param mu0: MG parameter
         :param Sigma0: MG parameter
+        :param use_qsa: if False (with use_cs2), use scale-dependent mu from Cataneo+2024 eq. (31a)
         """
 
         if YHe is None:
@@ -729,6 +734,7 @@ class CAMBparams(F2003Class):
                 self.Sigma0 = Sigma0
         else:
             self.use_cs2 = True
+            self.use_qsa = use_qsa
             self.alpha_K_parametrization = alpha_K_parametrization
             self.alpha_K_0 = alpha_K_0
             self.use_mg = True
